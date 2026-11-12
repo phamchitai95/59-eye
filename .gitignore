@@ -1,0 +1,17 @@
+# Ban build / dong goi
+build/
+build_*/
+dist/
+*.exe
+
+# Du lieu chay that (mat khau dau ghi, tai khoan) - KHONG dua len git
+config.json
+config.json.bak
+users.json
+image.ini
+ui.ini
+*.log
+metrics_*.csv
+
+# Ket qua thu nghiem, ban dump cau hinh camera, anh chup man hinh
+tools/testcfg/

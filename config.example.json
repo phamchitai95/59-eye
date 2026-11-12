@@ -1,0 +1,11 @@
+{
+  "nvrs": [
+    { "name": "NVR 1", "host": "100.64.0.1", "httpPort": 80, "rtspPort": 554, "user": "admin", "password": "", "channels": 16 },
+    { "name": "NVR 2", "host": "100.64.0.2", "httpPort": 80, "rtspPort": 554, "user": "admin", "password": "", "channels": 16 },
+    { "name": "NVR 3", "host": "100.64.0.3", "httpPort": 80, "rtspPort": 554, "user": "admin", "password": "", "channels": 16 },
+    { "name": "NVR 4", "host": "100.64.0.4", "httpPort": 80, "rtspPort": 554, "user": "admin", "password": "", "channels": 16 }
+  ],
+  "liveLatencyMs": 200,
+  "playbackLatencyMs": 500,
+  "videoSink": ""
+}
