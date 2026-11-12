@@ -8,7 +8,7 @@ typedef struct _GstBus GstBus;
 
 // Trich doan ban ghi ra MP4 khong nen lai video:
 // rtspsrc (cam/playback, TCP) -> depay -> h264parse/h265parse -> mp4mux -> filesink.
-// Am thanh G.711 duoc doi sang AAC (MP4 khong chua G.711). Chay theo toc do thuc (1 phut = ~1 phut).
+// Am thanh G.711 duoc doi sang AAC (MP4 khong chua G.711). Tai nhanh bang "Rate-Control: no" (~6x).
 class ClipExporter : public QObject {
     Q_OBJECT
 public:

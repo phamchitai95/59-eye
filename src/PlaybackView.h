@@ -57,7 +57,6 @@ private:
     QPushButton *m_searchBtn;
     QPushButton *m_playBtn;
     QComboBox *m_speed;
-    QCheckBox *m_noSync;
     QLabel *m_timeLbl;
     QLabel *m_status;
     TimelineWidget *m_timeline;

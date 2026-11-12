@@ -69,7 +69,7 @@ ExportDialog::ExportDialog(const ChannelRef &ref, const QDateTime &from, const Q
     m_bar->setTextVisible(false);
     m_bar->setFixedHeight(8);
     root->addWidget(m_bar);
-    m_status = new QLabel(QStringLiteral("Trích theo tốc độ thực: đoạn 1 phút mất khoảng 1 phút. Tối đa 2 giờ mỗi lần."), this);
+    m_status = new QLabel(QStringLiteral("Đầu ghi gửi nhanh hết mức mạng cho phép (thường 5–7 lần thời gian thực: 1 phút mất khoảng 10 giây). Tối đa 2 giờ mỗi lần."), this);
     m_status->setWordWrap(true);
     m_status->setStyleSheet("color:#a8959a;");
     root->addWidget(m_status);

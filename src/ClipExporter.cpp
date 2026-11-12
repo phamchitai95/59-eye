@@ -1,4 +1,5 @@
 #include "ClipExporter.h"
+#include "RtspTweak.h"
 #include "AppInfo.h"
 #include <QDateTime>
 
@@ -221,6 +222,9 @@ bool ClipExporter::start(const QString &rtspUrl, const QString &user, const QStr
     }
     g_object_set(src, "location", rtspUrl.toUtf8().constData(), "protocols", 4 /*TCP*/, "latency", 1000,
                  "user-id", user.toUtf8().constData(), "user-pw", password.toUtf8().constData(), nullptr);
+    // Tai nhanh het muc: "Rate-Control: no" (do tren NVR that ~7x). Moc thoi gian lay thuan tu RTP
+    // (buffer-mode none) de thoi luong file dung du du lieu den nhanh hon thoi gian thuc.
+    if (RtspTweak::attach(src, "Rate-Control", "no")) gst_util_set_object_arg(G_OBJECT(src), "buffer-mode", "none");
     g_object_set(sink, "location", outFile.toUtf8().constData(), nullptr);
     gst_bin_add_many(GST_BIN(m_pipe), src, m_sh->mux, sink, nullptr);
     gst_element_link(m_sh->mux, sink);

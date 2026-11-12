@@ -73,10 +73,8 @@ PlaybackView::PlaybackView(QWidget *parent)
     m_speed = new QComboBox(this);
     for (int r : {1, 2, 4, 8}) m_speed->addItem(QStringLiteral("x%1").arg(r), r);
     ctl->addWidget(m_speed);
-    m_noSync = new QCheckBox(QStringLiteral("Tắt đồng bộ khi tua nhanh (thử nghiệm)"), this);
-    m_noSync->setToolTip(QStringLiteral(
-        "Nếu đầu ghi tự gửi khung hình nhanh hơn khi nhận Scale, bật mục này để hiển thị ngay khi nhận"));
-    ctl->addWidget(m_noSync);
+    m_speed->setToolTip(QStringLiteral("Tua nhanh: đầu ghi gửi đủ khung hình nhanh gấp N lần (băng thông cũng gấp N). "
+                                       "Khi tua nhanh không phát tiếng."));
     ctl->addStretch();
     ctl->addWidget(createVolumeControl(this));
     ctl->addSpacing(8);
@@ -107,7 +105,6 @@ PlaybackView::PlaybackView(QWidget *parent)
     connect(back, &QPushButton::clicked, this, [this] { jump(-30); });
     connect(fwd, &QPushButton::clicked, this, [this] { jump(30); });
     connect(m_speed, &QComboBox::currentIndexChanged, this, &PlaybackView::applySpeed);
-    connect(m_noSync, &QCheckBox::toggled, this, &PlaybackView::applySpeed);
     connect(m_tile, &VideoTile::audioToggleRequested, this, &PlaybackView::toggleAudio);
     connect(m_tile->player(), &GstPlayer::playing, this, [this] {
         m_wall.start();
@@ -201,7 +198,10 @@ void PlaybackView::openAt(const QDateTime &t)
     p.latencyMs = cfg().playbackLatencyMs;
     p.live = false;
     p.sync = true;
-    p.audio = m_audio && users().can(Users::Audio);
+    m_rate = m_speed->currentData().toDouble();
+    if (m_rate < 1) m_rate = 1;
+    p.speed = m_rate;
+    p.audio = m_audio && users().can(Users::Audio) && m_rate <= 1.01; // tua nhanh: khong phat tieng
 
     m_openTime = t;
     m_wall.invalidate();
@@ -209,13 +209,9 @@ void PlaybackView::openAt(const QDateTime &t)
     m_paused = false;
     m_playBtn->setIcon(Icons::pause());
     m_playBtn->setText(QStringLiteral(" Tạm dừng"));
-    {
-        QSignalBlocker b(m_speed);
-        m_speed->setCurrentIndex(0);
-    }
-    m_rate = 1.0;
-    m_tile->playCustom(p, QStringLiteral("%1 · từ %2")
-                              .arg(cfg().channelTitle(ref), t.toString("dd/MM HH:mm:ss")), false, ref);
+    const QString speedTxt = m_rate > 1.01 ? QStringLiteral(" · x%1").arg(m_rate) : QString();
+    m_tile->playCustom(p, QStringLiteral("%1 · từ %2%3")
+                              .arg(cfg().channelTitle(ref), t.toString("dd/MM HH:mm:ss"), speedTxt), false, ref);
     m_timeline->setPlayhead(t);
 }
 
@@ -223,8 +219,14 @@ QDateTime PlaybackView::currentTime() const
 {
     if (!m_openTime.isValid()) return {};
     if (m_paused) return m_pausedAt;
-    const qint64 pos = const_cast<VideoTile *>(m_tile)->player()->positionMs();
-    if (pos >= 0) return m_openTime.addMSecs(pos);
+    GstPlayer *pl = const_cast<VideoTile *>(m_tile)->player();
+    if (m_rate > 1.01) {
+        const qint64 media = pl->mediaPositionMs();
+        if (media >= 0) return m_openTime.addMSecs(media);
+    } else {
+        const qint64 pos = pl->positionMs();
+        if (pos >= 0) return m_openTime.addMSecs(pos);
+    }
     if (m_wall.isValid()) return m_openTime.addMSecs(m_wallBaseMs + qint64(m_wall.elapsed() * m_rate));
     return m_openTime;
 }
@@ -254,14 +256,7 @@ void PlaybackView::togglePause()
         m_playBtn->setIcon(Icons::play());
         m_playBtn->setText(QStringLiteral(" Phát"));
     } else {
-        m_paused = false;
-        pl->setPaused(false);
-        if (m_wall.isValid()) {
-            m_wallBaseMs = m_openTime.msecsTo(m_pausedAt);
-            m_wall.restart();
-        }
-        m_playBtn->setIcon(Icons::pause());
-        m_playBtn->setText(QStringLiteral(" Tạm dừng"));
+        openAt(m_pausedAt.isValid() ? m_pausedAt : m_openTime);
     }
 }
 
@@ -279,20 +274,17 @@ void PlaybackView::jump(int seconds)
 
 void PlaybackView::applySpeed()
 {
-    GstPlayer *pl = m_tile->player();
     const double rate = m_speed->currentData().toDouble();
-    if (!pl->isOpen()) return;
-    const QDateTime cur = currentTime();
-    pl->setSync(!(m_noSync->isChecked() && rate > 1.0));
-    const bool ok = pl->setRate(rate);
-    if (m_wall.isValid() && cur.isValid()) {
-        m_wallBaseMs = m_openTime.msecsTo(cur);
-        m_wall.restart();
+    if (!m_tile->player()->isOpen() && !m_paused) {
+        m_rate = rate;
+        return;
     }
-    m_rate = rate;
-    m_status->setText(ok ? QStringLiteral("Đã gửi lệnh tốc độ x%1 (RTSP Scale) — theo dõi băng thông ở thanh dưới")
-                               .arg(rate)
-                         : QStringLiteral("Đầu ghi/pipeline không nhận lệnh đổi tốc độ x%1").arg(rate));
+    const QDateTime cur = currentTime();
+    if (!cur.isValid()) return;
+    openAt(cur); // dung toc do dang chon
+    m_status->setText(rate > 1.01
+        ? QStringLiteral("Tua x%1 từ %2 — không phát tiếng khi tua").arg(rate).arg(cur.toString("HH:mm:ss"))
+        : QStringLiteral("Phát bình thường từ %1").arg(cur.toString("HH:mm:ss")));
 }
 
 void PlaybackView::stopPlayback()

@@ -17,6 +17,7 @@ struct StreamParams {
     bool sync = true;   // sink co dong bo theo timestamp hay khong
     bool leaky = false; // queue vut khung khi day (cach cu, de so sanh)
     bool audio = false; // phat am thanh cua camera
+    double speed = 1.0; // xem lai tua nhanh: dau ghi tu gui nhanh (Speed/Scale), sink khong dong bo
 };
 
 // Chinh mau tren GPU (GstColorBalance cua d3d12videosink)
@@ -50,6 +51,7 @@ public:
     bool audioActive() const;     // dang phat tieng
     QString audioCodec() const;
     qint64 positionMs() const;       // -1 neu khong truy van duoc
+    qint64 mediaPositionMs() const;  // thoi gian ban ghi da nhan (theo moc RTP video), -1 neu chua co
     void expose();
 
     QString decoderName() const;

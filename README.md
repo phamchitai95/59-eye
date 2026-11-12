@@ -34,7 +34,11 @@ cp config.json build/ && ./build/litepss
   Mỗi ô hiện: tên kênh · bộ giải mã đang dùng · độ phân giải · kbps. Mất kết nối tự thử lại sau 3 giây.
 - **Xem lại**: chọn kênh + ngày → thanh thời gian (xanh = ghi thường, cam = sự kiện).
   Nhấp vào thanh để phát từ thời điểm đó, lăn chuột để phóng to, kéo để di chuyển.
-  Tốc độ x2/x4/x8 gửi lệnh RTSP `Scale`; nếu hình chạy sai tốc độ hãy thử ô "Tắt đồng bộ khi tua nhanh".
+  Tốc độ x2/x4/x8: mở lại luồng tại thời điểm đang xem với header RTSP `Speed: N` (đầu ghi gửi đủ khung nhanh gấp N,
+  băng thông gấp N; x8 luồng chính 1440p ≈ 15 Mbps, GPU HD 620 giải mã ~27%). Khi tua không phát tiếng.
+  Tạm dừng = đứng hình; Phát tiếp = mở lại luồng tại chỗ đã dừng.
+- **Trích MP4**: nút "Trích MP4" ở tab Xem lại (cần quyền). Tải bằng header `Rate-Control: no` (~6 lần thời gian thực),
+  không nén lại video, tiếng G.711 đổi sang AAC.
 - **Âm thanh**: nút loa trên thanh tiêu đề mỗi ô, mỗi lúc chỉ 1 ô phát tiếng (bật ô này thì ô khác tắt).
   Bật/tắt sẽ kết nối lại ô đó (~1 giây). Hỗ trợ G.711A/U (PCMA/PCMU), AAC, G.726. Camera phải bật Audio
   trong cấu hình mã hóa của đầu ghi. Tab Xem lại cũng có nút loa trên ô video.

@@ -1,5 +1,6 @@
 #include "GstPlayer.h"
 #include "Config.h"
+#include "RtspTweak.h"
 
 #include <gst/gst.h>
 #include <gst/video/navigation.h>
@@ -26,7 +27,40 @@ struct GstPlayer::Shared {
     GstElement *audioConv = nullptr;
     QString audioCodec;
     std::atomic<double> volume{0.6};
+    // vi tri theo moc RTP video (dung khi tua nhanh: dong ho may khong phan anh thoi gian ban ghi)
+    std::atomic<qint64> rtpFirst{-1};
+    std::atomic<qint64> rtpLast{-1};   // da mo rong qua 32 bit
 };
+
+static void trackRtp(GstPlayer::Shared *sh, GstBuffer *b)
+{
+    guint8 hdr[8];
+    if (gst_buffer_extract(b, 0, hdr, 8) != 8 || (hdr[0] >> 6) != 2) return;
+    const quint32 ts = (quint32(hdr[4]) << 24) | (quint32(hdr[5]) << 16) | (quint32(hdr[6]) << 8) | hdr[7];
+    const qint64 last = sh->rtpLast;
+    qint64 ext = ts;
+    if (last >= 0) {
+        // mo rong 32 bit: chon gia tri gan last nhat
+        ext = (last & ~qint64(0xffffffff)) | ts;
+        if (ext - last > 0x80000000LL) ext -= 0x100000000LL;
+        else if (last - ext > 0x80000000LL) ext += 0x100000000LL;
+    }
+    if (sh->rtpFirst < 0) sh->rtpFirst = ext;
+    if (ext > last) sh->rtpLast = ext;
+}
+
+static GstPadProbeReturn onVideoRtp(GstPad *, GstPadProbeInfo *info, gpointer ud)
+{
+    auto *sh = static_cast<GstPlayer::Shared *>(ud);
+    if (info->type & GST_PAD_PROBE_TYPE_BUFFER) {
+        trackRtp(sh, GST_PAD_PROBE_INFO_BUFFER(info));
+    } else if (info->type & GST_PAD_PROBE_TYPE_BUFFER_LIST) {
+        GstBufferList *l = GST_PAD_PROBE_INFO_BUFFER_LIST(info);
+        const guint n = gst_buffer_list_length(l);
+        for (guint i = 0; i < n; ++i) trackRtp(sh, gst_buffer_list_get(l, i));
+    }
+    return GST_PAD_PROBE_OK;
+}
 
 // Chi noi nhanh am thanh khi chac chan co depay + decoder, tranh loi "thieu plugin" lam dung ca o.
 static bool audioSupported(const gchar *enc)
@@ -133,6 +167,8 @@ static void onSrcPadAdded(GstElement *, GstPad *pad, gpointer ud)
         }
     }
     if (isVideo && !gst_pad_is_linked(decSink)) {
+        gst_pad_add_probe(pad, GstPadProbeType(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_BUFFER_LIST),
+                          onVideoRtp, sh, nullptr);
         gst_pad_link(pad, decSink);
     } else if (isAudio && sh->wantAudio && !sh->audioConv && audioSupported(enc) && addAudioBranch(sh, pad)) {
         // da noi nhanh am thanh
@@ -230,7 +266,7 @@ bool GstPlayer::open(const StreamParams &p, quintptr windowHandle)
         m_sink = nullptr;
         delete m_sh;
         m_sh = nullptr;
-        emit error(QStringLiteral("Thiếu plugin GStreamer: %1").arg(missing));
+        emit error(QStringLiteral("Thiáº¿u plugin GStreamer: %1").arg(missing));
         return false;
     }
     m_sh->pipe = m_pipe;
@@ -245,6 +281,12 @@ bool GstPlayer::open(const StreamParams &p, quintptr windowHandle)
         g_object_set(src, "user-id", p.user.toUtf8().constData(),
                      "user-pw", p.password.toUtf8().constData(), nullptr);
     if (hasProp(src, "tcp-timeout")) g_object_set(src, "tcp-timeout", guint64(8000000), nullptr);
+    // Tua nhanh xem lai: header "Speed: N" -> dau ghi gui du khung nhanh gap N (do: x8 = 153 fps 1440p,
+    // GPU HD 620 giai ma 27%). "Scale" chi gui khung chinh (~2 fps o x8) nen khong dung.
+    if (p.speed > 1.01) {
+        const QByteArray v = QByteArray::number(p.speed, 'f', 1);
+        RtspTweak::attach(src, "Speed", v.constData());
+    }
     if (hasProp(src, "teardown-timeout"))
         g_object_set(src, "teardown-timeout", guint64(200 * GST_MSECOND), nullptr);
 
@@ -254,8 +296,10 @@ bool GstPlayer::open(const StreamParams &p, quintptr windowHandle)
                  "max-size-time", guint64(0), nullptr);
     if (p.live && p.leaky) gst_util_set_object_arg(G_OBJECT(queue), "leaky", "downstream");
 
-    g_object_set(m_sink, "sync", gboolean(p.sync), nullptr);
-    if (hasProp(m_sink, "force-aspect-ratio")) g_object_set(m_sink, "force-aspect-ratio", TRUE, nullptr);
+    // Khi tua nhanh, dau ghi da gui dung nhip -> ve ngay khi nhan (moc thoi gian RTP chay nhanh gap N lan)
+    g_object_set(m_sink, "sync", gboolean(p.sync && p.speed <= 1.01), nullptr);
+    // Hinh tran day o (nguoi dung yeu cau "Tràn đầy ô"): keo gian theo o, khong giu ti le / khong vien den
+    if (hasProp(m_sink, "force-aspect-ratio")) g_object_set(m_sink, "force-aspect-ratio", FALSE, nullptr);
     // Thu phong chat luong cao (hinh 704x576 phong len o to bot rang cua)
     if (hasProp(m_sink, "sampling-method")) gst_util_set_object_arg(G_OBJECT(m_sink), "sampling-method", "anisotropic");
     applyColor();
@@ -283,7 +327,7 @@ bool GstPlayer::open(const StreamParams &p, quintptr windowHandle)
     s_all.insert(this);
 
     if (gst_element_set_state(m_pipe, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
-        emit error(QStringLiteral("Không chuyển được sang PLAYING"));
+        emit error(QStringLiteral("KhÃ´ng chuyá»ƒn Ä‘Æ°á»£c sang PLAYING"));
         return false;
     }
     return true;
@@ -378,6 +422,14 @@ qint64 GstPlayer::positionMs() const
     return -1;
 }
 
+qint64 GstPlayer::mediaPositionMs() const
+{
+    if (!m_sh) return -1;
+    const qint64 a = m_sh->rtpFirst, b = m_sh->rtpLast;
+    if (a < 0 || b < a) return -1;
+    return (b - a) / 90; // dong ho RTP video 90 kHz
+}
+
 void GstPlayer::expose()
 {
     if (m_sink && GST_IS_VIDEO_OVERLAY(m_sink)) gst_video_overlay_expose(GST_VIDEO_OVERLAY(m_sink));
@@ -469,7 +521,7 @@ void GstPlayer::pollBus()
             GError *err = nullptr;
             gchar *dbg = nullptr;
             gst_message_parse_error(msg, &err, &dbg);
-            const QString text = QString::fromUtf8(err ? err->message : "lỗi không rõ");
+            const QString text = QString::fromUtf8(err ? err->message : "lá»—i khÃ´ng rÃµ");
             g_clear_error(&err);
             g_free(dbg);
             gst_message_unref(msg);
