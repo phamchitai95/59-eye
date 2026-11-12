@@ -35,10 +35,13 @@ VideoTile::VideoTile(int index, QWidget *parent) : QFrame(parent), m_index(index
     m_name = new QLabel(m_headerBar);
     m_name->setStyleSheet("color:#f2f4f7;font-weight:600;font-size:12px;background:transparent;");
     m_name->installEventFilter(this);
+    // Nhan co the co lai (bi cat chu) de khong ep o rong ra: luoi 4x4 luon vua cua so
+    m_name->setMinimumWidth(1);
     hl->addWidget(m_name, 1);
     m_info = new QLabel(m_headerBar);
     m_info->setStyleSheet("color:#a8959a;font-size:11px;background:transparent;");
     m_info->installEventFilter(this);
+    m_info->setMinimumWidth(1);
     hl->addWidget(m_info);
 
     m_audioBtn = new QToolButton(m_headerBar);
@@ -85,6 +88,9 @@ VideoTile::VideoTile(int index, QWidget *parent) : QFrame(parent), m_index(index
     m_placeholder->setAlignment(Qt::AlignCenter);
     m_placeholder->setStyleSheet("color:#5e4a4d;background:#0a0707;font-size:12px;");
     m_placeholder->installEventFilter(this);
+    m_placeholder->setWordWrap(true);
+    // Bo qua kich thuoc goi y: moi o trong luoi chia deu, khong bi chu/video lam lech hang cot
+    m_placeholder->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_stack->addWidget(m_placeholder);
 
     m_video = new QWidget(body);
@@ -95,6 +101,8 @@ VideoTile::VideoTile(int index, QWidget *parent) : QFrame(parent), m_index(index
     pal.setColor(QPalette::Window, QColor("#000000"));
     m_video->setPalette(pal);
     m_video->setMinimumSize(80, 45);
+    m_video->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    body->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_video->installEventFilter(this);
     m_stack->addWidget(m_video);
     lay->addWidget(body, 1);
@@ -309,7 +317,9 @@ void VideoTile::refreshHeader()
         return;
     }
     if (m_ref.valid()) m_title = cfg().channelTitle(m_ref); // ten kenh co the tai ve sau khi mo luong
-    m_name->setText(m_title);
+    // o nho (luoi 3x3/4x4): bo ten dau ghi, chi giu ten kenh
+    m_name->setText(width() < 520 && m_ref.valid() ? cfg().shortTitle(m_ref) : m_title);
+    m_name->setToolTip(m_title); // ten day du khi o nho bi cat chu
     m_audioBtn->setChecked(m_params.audio);
     m_audioBtn->setIcon(Icons::speaker(m_params.audio));
 
@@ -360,5 +370,7 @@ bool VideoTile::eventFilter(QObject *o, QEvent *e)
 void VideoTile::resizeEvent(QResizeEvent *e)
 {
     QFrame::resizeEvent(e);
+    // Uu tien ten kenh: thong so chi chiem toi da ~45% thanh tieu de (o nho trong luoi 4x4)
+    m_info->setMaximumWidth(qMax(40, int(width() * 0.40) - 40));
     m_player.expose();
 }

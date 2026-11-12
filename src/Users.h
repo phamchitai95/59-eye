@@ -63,3 +63,8 @@ public:
 
 // Hop thoai doi mat khau cua chinh minh
 bool changeOwnPassword(QWidget *parent);
+
+// Dang nhap tu dong bang mat khau da luu (Windows: DPAPI theo nguoi dung Windows, luu trong
+// HKCU, tach rieng theo thu muc du lieu). That bai (tai khoan bi xoa / doi mat khau) -> tra false
+// im lang va xoa mat khau da luu, de hien hop thoai dang nhap.
+bool tryAutoLogin();

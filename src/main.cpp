@@ -200,6 +200,8 @@ int main(int argc, char *argv[])
             const QString cred = a[li + 1];
             ok = users().login(cred.section(':', 0, 0), cred.section(':', 1));
         }
+        // --login luon uu tien; sau do moi thu dang nhap tu dong (tru khi vua dang xuat)
+        if (!ok && li < 0 && !a.contains("--no-autologin")) ok = tryAutoLogin();
         if (!ok) {
             LoginDialog dlg;
             dlg.setWindowIcon(Icons::app());

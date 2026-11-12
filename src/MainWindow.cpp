@@ -131,7 +131,8 @@ void MainWindow::applyPermissions()
 void MainWindow::logout()
 {
     // Khoi dong lai ung dung de hien man hinh dang nhap, tranh sot trang thai cua phien cu
-    QProcess::startDetached(QCoreApplication::applicationFilePath(), {});
+    // --no-autologin: vua dang xuat thi phai hien man hinh dang nhap, khong vao lai tu dong
+    QProcess::startDetached(QCoreApplication::applicationFilePath(), {"--no-autologin"});
     QApplication::quit();
 }
 
@@ -148,7 +149,7 @@ void MainWindow::runAutomation(const QStringList &a)
         m_playback->setChannel({0, 1});
         QTimer::singleShot(3000, m_playback, &PlaybackView::playFirstRecord);
         // --steps "9:s2,12:p,15:p,18:j30" (giay:lenh) thu tua/tam dung (chan doan)
-        //   sN = chon toc do N (0=x1..3=x8), p = bam Tam dung/Phat, jN = nhay N giay
+        //   sN = chon toc do N (0=x1..3=x8), p = bam Tam dung/Phat, jN = nhay N giay, a = bat/tat tieng
         for (const QString &step : argValue(a, "--steps").split(',', Qt::SkipEmptyParts)) {
             const int at = step.section(':', 0, 0).toInt();
             const QString cmd = step.section(':', 1);

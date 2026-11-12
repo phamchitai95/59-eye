@@ -14,8 +14,147 @@
 #include <QRandomGenerator>
 #include <QSaveFile>
 #include <QVBoxLayout>
+#include <QCheckBox>
+#include <QHBoxLayout>
+#include <QCryptographicHash>
+#include <QDir>
+#include <QSettings>
+#include "AppInfo.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#include <wincrypt.h>
+#endif
 
 static constexpr int kIterations = 60000;
+
+// ---------------- Luu mat khau / dang nhap tu dong ----------------
+// Luu trong HKCU\Software\TrungTam59\59-eye\login_<ma thu muc du lieu>: moi nguoi dung Windows,
+// moi ban cai (thu muc du lieu) co ban luu rieng. Mat khau ma hoa bang DPAPI (chi chinh nguoi dung
+// Windows do tren may do giai ma duoc). Ngoai Windows khong luu mat khau.
+
+namespace {
+struct SavedLogin {
+    QString user;
+    bool remember = false;
+    bool autoLogin = false;
+    QString password; // da giai ma, chi trong bo nho
+};
+
+QString loginGroup()
+{
+    const QByteArray h = QCryptographicHash::hash(QDir::cleanPath(AppInfo::dataDir()).toLower().toUtf8(),
+                                                  QCryptographicHash::Sha1).toHex().left(10);
+    return QStringLiteral("login_") + QString::fromLatin1(h);
+}
+
+QSettings &loginStore()
+{
+    static QSettings s(QSettings::NativeFormat, QSettings::UserScope, "TrungTam59", "59-eye");
+    return s;
+}
+
+bool canStorePassword()
+{
+#ifdef _WIN32
+    return true;
+#else
+    return false;
+#endif
+}
+
+QByteArray protect(const QString &plain)
+{
+#ifdef _WIN32
+    const QByteArray in = plain.toUtf8();
+    DATA_BLOB src{DWORD(in.size()), reinterpret_cast<BYTE *>(const_cast<char *>(in.constData()))};
+    DATA_BLOB out{};
+    if (!CryptProtectData(&src, L"59-eye", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) return {};
+    QByteArray r(reinterpret_cast<const char *>(out.pbData), int(out.cbData));
+    LocalFree(out.pbData);
+    return r;
+#else
+    Q_UNUSED(plain);
+    return {};
+#endif
+}
+
+QString unprotect(const QByteArray &blob)
+{
+#ifdef _WIN32
+    if (blob.isEmpty()) return {};
+    DATA_BLOB src{DWORD(blob.size()), reinterpret_cast<BYTE *>(const_cast<char *>(blob.constData()))};
+    DATA_BLOB out{};
+    if (!CryptUnprotectData(&src, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) return {};
+    const QString r = QString::fromUtf8(reinterpret_cast<const char *>(out.pbData), int(out.cbData));
+    SecureZeroMemory(out.pbData, out.cbData);
+    LocalFree(out.pbData);
+    return r;
+#else
+    Q_UNUSED(blob);
+    return {};
+#endif
+}
+
+SavedLogin readSaved()
+{
+    QSettings &s = loginStore();
+    s.beginGroup(loginGroup());
+    SavedLogin l;
+    l.user = s.value("user").toString();
+    l.remember = s.value("remember", false).toBool();
+    l.autoLogin = s.value("auto", false).toBool();
+    if (l.remember) l.password = unprotect(QByteArray::fromBase64(s.value("secret").toByteArray()));
+    s.endGroup();
+    if (l.password.isEmpty()) {
+        l.remember = false;
+        l.autoLogin = false;
+    }
+    return l;
+}
+
+void writeSaved(const QString &user, bool remember, bool autoLogin, const QString &password)
+{
+    QSettings &s = loginStore();
+    s.beginGroup(loginGroup());
+    s.setValue("user", user);
+    QByteArray blob;
+    if (remember && canStorePassword()) blob = protect(password);
+    if (!blob.isEmpty()) {
+        s.setValue("remember", true);
+        s.setValue("auto", autoLogin);
+        s.setValue("secret", QString::fromLatin1(blob.toBase64()));
+    } else {
+        // bo chon "Luu mat khau" (hoac khong ma hoa duoc) -> xoa gia tri da luu
+        s.setValue("remember", false);
+        s.setValue("auto", false);
+        s.remove("secret");
+    }
+    s.endGroup();
+    s.sync();
+}
+
+void clearSavedPassword()
+{
+    QSettings &s = loginStore();
+    s.beginGroup(loginGroup());
+    s.setValue("remember", false);
+    s.setValue("auto", false);
+    s.remove("secret");
+    s.endGroup();
+    s.sync();
+}
+} // namespace
+
+bool tryAutoLogin()
+{
+    const SavedLogin l = readSaved();
+    if (!l.autoLogin || l.user.isEmpty() || l.password.isEmpty()) return false;
+    if (users().login(l.user, l.password)) return true;
+    // tai khoan bi xoa / doi mat khau: bo mat khau cu, hien hop thoai dang nhap
+    clearSavedPassword();
+    return false;
+}
 
 Users &Users::instance()
 {
@@ -206,6 +345,35 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent)
     }
     root->addLayout(form);
 
+    // Luu mat khau / tu dong dang nhap
+    const SavedLogin saved = readSaved();
+    if (!firstRun && !saved.user.isEmpty()) name->setText(saved.user);
+    if (!firstRun && saved.remember) pw->setText(saved.password);
+    auto *remember = new QCheckBox(QStringLiteral("Lưu mật khẩu"), this);
+    auto *autoLogin = new QCheckBox(QStringLiteral("Tự động đăng nhập"), this);
+    remember->setChecked(saved.remember);
+    autoLogin->setChecked(saved.autoLogin);
+    remember->setToolTip(QStringLiteral("Mật khẩu được mã hoá theo tài khoản Windows đang dùng, chỉ dùng được trên máy này"));
+    autoLogin->setToolTip(QStringLiteral("Lần sau mở 59-eye sẽ vào thẳng, không hỏi mật khẩu. Đăng xuất để đổi tài khoản."));
+    if (!canStorePassword()) {
+        remember->setEnabled(false);
+        autoLogin->setEnabled(false);
+        remember->setToolTip(QStringLiteral("Chỉ hỗ trợ trên Windows"));
+    }
+    connect(autoLogin, &QCheckBox::toggled, this, [remember](bool on) {
+        if (on) remember->setChecked(true); // tu dong dang nhap can mat khau da luu
+    });
+    connect(remember, &QCheckBox::toggled, this, [autoLogin](bool on) {
+        if (!on) autoLogin->setChecked(false);
+    });
+    auto *checks = new QHBoxLayout;
+    checks->setContentsMargins(0, 0, 0, 0);
+    checks->addWidget(remember);
+    checks->addSpacing(12);
+    checks->addWidget(autoLogin);
+    checks->addStretch();
+    root->addLayout(checks);
+
     auto *err = new QLabel(this);
     err->setStyleSheet("color:#f08a84;");
     err->hide();
@@ -246,6 +414,7 @@ LoginDialog::LoginDialog(QWidget *parent) : QDialog(parent)
             pw->setFocus();
             return fail(QStringLiteral("Sai tài khoản hoặc mật khẩu"));
         }
+        writeSaved(n, remember->isChecked(), autoLogin->isChecked(), pw->text());
         accept();
     });
 }
@@ -278,6 +447,10 @@ bool changeOwnPassword(QWidget *parent)
         QString e;
         if (!users().save(&e)) return err->setText(QStringLiteral("Không ghi được: %1").arg(e));
         users().refreshCurrent();
+        // dang luu mat khau cho tai khoan nay -> cap nhat sang mat khau moi
+        const SavedLogin saved = readSaved();
+        if (saved.remember && saved.user.compare(u.name, Qt::CaseInsensitive) == 0)
+            writeSaved(u.name, true, saved.autoLogin, pw->text());
         dlg.accept();
     });
     return dlg.exec() == QDialog::Accepted;
