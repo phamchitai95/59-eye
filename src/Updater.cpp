@@ -31,9 +31,14 @@ Updater &Updater::instance()
     return u;
 }
 
+// Nguon OTA chinh thuc: dung khi config.json khong co "updateUrl" va luc build khong truyen UPDATE_URL
+static const char kDefaultUpdateUrl[] = "https://github.com/phamchitai95/59-eye/releases/latest/download/latest.json";
+
 QString Updater::manifestUrl() const
 {
-    return cfg().updateUrl.isEmpty() ? QStringLiteral(UPDATE_URL) : cfg().updateUrl;
+    if (!cfg().updateUrl.isEmpty()) return cfg().updateUrl;
+    const QString built = QStringLiteral(UPDATE_URL);
+    return built.isEmpty() ? QString::fromLatin1(kDefaultUpdateUrl) : built;
 }
 
 static bool isRemote(const QString &s)

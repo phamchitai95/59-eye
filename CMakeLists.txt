@@ -59,7 +59,7 @@ add_executable(litepss WIN32
     src/Updater.h src/Updater.cpp
 )
 set_target_properties(litepss PROPERTIES OUTPUT_NAME "59-eye")
-set(UPDATE_URL "" CACHE STRING "Nguon cap nhat OTA mac dinh (URL hoac duong dan latest.json)")
+set(UPDATE_URL "" CACHE STRING "Ghi de nguon cap nhat OTA (rong = repo chinh thuc phamchitai95/59-eye)")
 target_compile_definitions(litepss PRIVATE APP_VERSION="${PROJECT_VERSION}" UPDATE_URL="${UPDATE_URL}")
 # Logo: assets/icon.png (icon trong app, tao tu logo.png) va assets/59-eye.ico (icon file exe)
 if(EXISTS "${CMAKE_SOURCE_DIR}/assets/icon.png")
