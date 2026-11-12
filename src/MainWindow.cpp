@@ -111,10 +111,13 @@ void MainWindow::applyPermissions()
     else m_live->closeAll();
     if (users().can(Users::Playback)) m_tabs->addTab(m_playback, QStringLiteral("Xem lại"));
     else m_playback->stopPlayback();
-    m_live->setVisible(users().can(Users::Live));
-    m_playback->setVisible(users().can(Users::Playback));
+    // Khong goi show() cho cac trang: QTabWidget tu an trang khong duoc chon. Goi show() se lam trang do
+    // hien chong duoi trang dang chon (vd thanh cong cu Xem lai lo ra o goc tab Cai dat).
+    // Chi an trang khong co quyen (da bi go khoi thanh tab nhung van la con cua QTabWidget).
+    if (!users().can(Users::Live)) m_live->hide();
+    if (!users().can(Users::Playback)) m_playback->hide();
     if (users().can(Users::Count)) m_tabs->addTab(m_count, QStringLiteral("Đếm lượng"));
-    m_count->setVisible(users().can(Users::Count));
+    else m_count->hide();
     if (users().isAdmin()) {
         if (!m_settings) {
             m_settings = new SettingsView(m_tabs);
