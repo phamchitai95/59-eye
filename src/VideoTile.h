@@ -47,6 +47,7 @@ signals:
     void clicked(VideoTile *t);
     void doubleClicked(VideoTile *t);
     void audioToggleRequested(VideoTile *t);
+    void countRequested(const ChannelRef &ref); // chuot phai -> Dem so nguoi
     void streamPlaying(); // bo phat dang hien bat dau chay (thay cho player()->playing khi doi lop)
 
 protected:

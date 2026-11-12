@@ -202,18 +202,21 @@ static bool userDialog(QWidget *parent, UserAccount &u, bool isNew, QString *new
     auto *cAudio = new QCheckBox(QStringLiteral("Nghe âm thanh"), perms);
     auto *cLight = new QCheckBox(QStringLiteral("Bật/tắt đèn camera"), perms);
     auto *cAdjust = new QCheckBox(QStringLiteral("Chỉnh màu hình ảnh"), perms);
+    auto *cCount = new QCheckBox(QStringLiteral("Đếm số người"), perms);
     cLive->setChecked(u.live);
     cPlay->setChecked(u.playback);
     cExport->setChecked(u.exportClip);
     cAudio->setChecked(u.audio);
     cLight->setChecked(u.light);
     cAdjust->setChecked(u.adjust);
+    cCount->setChecked(u.count);
     pg->addWidget(cLive, 0, 0);
     pg->addWidget(cPlay, 0, 1);
     pg->addWidget(cExport, 0, 2);
     pg->addWidget(cAudio, 1, 0);
     pg->addWidget(cLight, 1, 1);
     pg->addWidget(cAdjust, 1, 2);
+    pg->addWidget(cCount, 2, 0);
     root->addWidget(perms);
 
     auto *chBox = new QGroupBox(QStringLiteral("Kênh được xem"), &dlg);
@@ -294,6 +297,7 @@ static bool userDialog(QWidget *parent, UserAccount &u, bool isNew, QString *new
     u.audio = cAudio->isChecked();
     u.light = cLight->isChecked();
     u.adjust = cAdjust->isChecked();
+    u.count = cCount->isChecked();
     u.allChannels = rAll->isChecked();
     u.channels.clear();
     for (int i = 0; i < tree->topLevelItemCount(); ++i)
@@ -580,6 +584,7 @@ void SettingsView::reloadUsers()
             if (u.audio) p << QStringLiteral("Âm thanh");
             if (u.light) p << QStringLiteral("Đèn");
             if (u.adjust) p << QStringLiteral("Chỉnh màu");
+            if (u.live && u.count) p << QStringLiteral("Đếm người");
         }
         QString name = u.name;
         if (u.name.compare(users().current().name, Qt::CaseInsensitive) == 0) name += QStringLiteral("  (đang dùng)");

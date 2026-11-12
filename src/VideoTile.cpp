@@ -512,6 +512,10 @@ void VideoTile::showContextMenu(const QPoint &globalPos)
         menu.addAction(audioOn() ? QStringLiteral("Tắt âm thanh") : QStringLiteral("Bật âm thanh"), this,
                        [this] { emit audioToggleRequested(this); });
     if (users().can(Users::Adjust)) menu.addAction(QStringLiteral("Chỉnh hình ảnh..."), this, &VideoTile::openAdjust);
+    if (m_params.live && m_ref.valid() && users().can(Users::Count)) {
+        const ChannelRef ref = m_ref;
+        menu.addAction(QStringLiteral("Đếm số người"), this, [this, ref] { emit countRequested(ref); });
+    }
     if (m_ref.valid() && users().can(Users::Light) && m_ref.nvr < cfg().nvrs.size() && cfg().nvrs[m_ref.nvr].isDahua())
         menu.addAction(QStringLiteral("Đèn camera..."), this, &VideoTile::openLightMenu);
     menu.exec(globalPos);

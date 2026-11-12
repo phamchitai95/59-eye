@@ -20,13 +20,14 @@ struct UserAccount {
     bool audio = true;
     bool light = false;
     bool adjust = true;
+    bool count = true;    // dem so nguoi trong lop
     bool allChannels = true;
     QStringList channels; // "<id thiet bi>/<kenh>" khi allChannels = false
 };
 
 class Users {
 public:
-    enum Perm { Live, Playback, Export, Audio, Light, Adjust };
+    enum Perm { Live, Playback, Export, Audio, Light, Adjust, Count };
 
     static Users &instance();
     bool load(const QString &path);

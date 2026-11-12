@@ -6,6 +6,7 @@ class DahuaClient;
 class LiveView;
 class PlaybackView;
 class SettingsView;
+class CountView;
 class QTabWidget;
 class QTreeWidget;
 class QToolButton;
@@ -31,6 +32,7 @@ private:
     LiveView *m_live;
     PlaybackView *m_playback;
     SettingsView *m_settings = nullptr;
+    CountView *m_count = nullptr;
     QToolButton *m_userBtn;
     int m_reloadGen = 0;
 };

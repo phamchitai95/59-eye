@@ -209,6 +209,7 @@ bool Users::load(const QString &path)
         u.audio = p.value("audio").toBool(true);
         u.light = p.value("light").toBool(false);
         u.adjust = p.value("adjust").toBool(true);
+        u.count = p.value("count").toBool(true);
         const QJsonValue ch = o.value("channels");
         u.allChannels = !ch.isArray();
         for (const QJsonValue &c : ch.toArray()) u.channels << c.toString();
@@ -233,6 +234,7 @@ bool Users::save(QString *error)
         p["audio"] = u.audio;
         p["light"] = u.light;
         p["adjust"] = u.adjust;
+        p["count"] = u.count;
         o["perms"] = p;
         if (!u.allChannels) o["channels"] = QJsonArray::fromStringList(u.channels);
         arr.append(o);
@@ -291,6 +293,7 @@ bool Users::can(Perm p) const
     case Audio: return u.audio;
     case Light: return u.light;
     case Adjust: return u.adjust;
+    case Count: return u.live && u.count;
     }
     return false;
 }

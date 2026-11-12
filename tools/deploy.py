@@ -17,6 +17,7 @@ PLUGINS = ['coreelements', 'rtsp', 'rtp', 'rtpmanager', 'udp', 'tcp', 'playback'
            'videoparsersbad', 'd3d12', 'd3d11', 'opengl', 'libav', 'isomp4', 'voaacenc', 'alaw', 'mulaw',
            'audioconvert', 'audioresample', 'volume', 'autodetect', 'wasapi', 'videoconvertscale',
            'audioparsers', 'app', 'directsound']
+ORT_DLL = os.path.join(DEPS, 'onnxruntime-win-x64-1.31.1', 'lib', 'onnxruntime.dll')
 
 OBJDUMP = os.path.join(MINGW, 'bin', 'objdump.exe')
 SEARCH = [os.path.join(GST, 'bin'), os.path.join(QT, 'bin'), os.path.join(MINGW, 'bin')]
@@ -42,6 +43,7 @@ def main():
         shutil.rmtree(DIST)
     os.makedirs(DIST)
     shutil.copy2(EXE, DIST)
+    shutil.copy2(ORT_DLL, DIST)  # dem nguoi (mo hinh tai ve lan dau dung)
 
     env = dict(os.environ, PATH=os.path.join(QT, 'bin') + os.pathsep + os.path.join(MINGW, 'bin') + os.pathsep + os.environ['PATH'])
     subprocess.run([os.path.join(QT, 'bin', 'windeployqt.exe'), '--release', '--no-translations',

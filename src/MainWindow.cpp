@@ -3,6 +3,7 @@
 #include "CameraDirectory.h"
 #include "Config.h"
 #include "DahuaClient.h"
+#include "CountView.h"
 #include "LightController.h"
 #include "LiveView.h"
 #include "MetricsBar.h"
@@ -56,6 +57,14 @@ MainWindow::MainWindow()
     m_tabs = new QTabWidget(split);
     m_live = new LiveView(m_tabs);
     m_playback = new PlaybackView(m_tabs);
+    m_count = new CountView(m_tabs);
+    // Chuot phai o camera -> "Dem so nguoi": dua sang tab Dem luong
+    for (int i = 0; VideoTile *t = m_live->tile(i); ++i)
+        connect(t, &VideoTile::countRequested, this, [this](const ChannelRef &ref) {
+            if (!users().can(Users::Count)) return;
+            m_count->enqueue(ref);
+            m_tabs->setCurrentWidget(m_count);
+        });
     split->setStretchFactor(1, 1);
     setCentralWidget(split);
 
@@ -104,6 +113,8 @@ void MainWindow::applyPermissions()
     else m_playback->stopPlayback();
     m_live->setVisible(users().can(Users::Live));
     m_playback->setVisible(users().can(Users::Playback));
+    if (users().can(Users::Count)) m_tabs->addTab(m_count, QStringLiteral("Đếm lượng"));
+    m_count->setVisible(users().can(Users::Count));
     if (users().isAdmin()) {
         if (!m_settings) {
             m_settings = new SettingsView(m_tabs);
@@ -197,6 +208,22 @@ void MainWindow::runAutomation(const QStringList &a)
             c->resize(360, 280);
             c->grab().save(calShot);
         });
+    }
+    // --count-test <kenh> <anh.jpg> [yyyy-MM-ddTHH:mm:ss]: dem nguoi kenh cua thiet bi 0 (tu ban ghi neu co thoi diem)
+    const int ct = a.indexOf("--count-test");
+    if (ct >= 0 && ct + 2 < a.size()) {
+        const int ch = a[ct + 1].toInt();
+        const QString out = a[ct + 2];
+        const QDateTime from = ct + 3 < a.size() ? QDateTime::fromString(a[ct + 3], Qt::ISODate) : QDateTime();
+        connect(m_count, &CountView::jobFinished, this, [out](bool ok, int n, const QImage &img, const QString &msg) {
+            if (ok) img.save(out, "JPG", 90);
+            QFile f(out + ".txt");
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text))
+                f.write(QStringLiteral("ok=%1 count=%2 %3\n").arg(ok).arg(n).arg(msg).toUtf8());
+            QApplication::quit();
+        });
+        m_count->enqueue({0, ch}, from);
+        m_tabs->setCurrentWidget(m_count);
     }
     const QString cmp = argValue(a, "--compare");
     if (!cmp.isEmpty()) m_metrics->setCompare(cmp);

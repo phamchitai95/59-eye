@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(EYE59 VERSION 1.0.2 LANGUAGES CXX)
+project(EYE59 VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,13 +21,13 @@ if(WIN32)
         "${GST_ROOT}/lib/glib-2.0/include")
     # KHONG them ${GST_ROOT}/lib vao duong tim kiem: thu muc do co libmingwex/libstdc++/libgcc rieng
     # cua GStreamer (UCRT) se bi lay nham thay cho runtime cua trinh bien dich. Link dich danh file .dll.a.
-    foreach(lib gstvideo-1.0 gstbase-1.0 gstreamer-1.0 gobject-2.0 glib-2.0)
+    foreach(lib gstapp-1.0 gstvideo-1.0 gstbase-1.0 gstreamer-1.0 gobject-2.0 glib-2.0)
         target_link_libraries(gst_deps INTERFACE "${GST_ROOT}/lib/lib${lib}.dll.a")
     endforeach()
     target_link_libraries(gst_deps INTERFACE pdh psapi dwmapi crypt32)
 else()
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-video-1.0)
+    pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-video-1.0 gstreamer-app-1.0)
     target_link_libraries(gst_deps INTERFACE PkgConfig::GST)
 endif()
 
@@ -57,6 +57,9 @@ add_executable(litepss WIN32
     src/ExportDialog.h src/ExportDialog.cpp
     src/AppInfo.h src/AppInfo.cpp
     src/Updater.h src/Updater.cpp
+    src/HeadDetector.h src/HeadDetector.cpp
+    src/CountWorker.h src/CountWorker.cpp
+    src/CountView.h src/CountView.cpp
 )
 set_target_properties(litepss PROPERTIES OUTPUT_NAME "59-eye")
 set(UPDATE_URL "" CACHE STRING "Ghi de nguon cap nhat OTA (rong = repo chinh thuc phamchitai95/59-eye)")
@@ -79,3 +82,11 @@ if(WIN32)
     target_compile_definitions(litepss PRIVATE _WIN32_WINNT=0x0A00 NOMINMAX UNICODE _UNICODE)
 endif()
 target_link_libraries(litepss PRIVATE Qt6::Widgets Qt6::Network gst_deps)
+
+# ---- ONNX Runtime (dem nguoi): chi can header; onnxruntime.dll nap luc chay, chep canh file chay ----
+set(ORT_ROOT "${CMAKE_SOURCE_DIR}/../_deps/onnxruntime-win-x64-1.31.1" CACHE PATH "Thu muc ONNX Runtime (include/, lib/)")
+target_include_directories(litepss PRIVATE "${ORT_ROOT}/include")
+if(WIN32 AND EXISTS "${ORT_ROOT}/lib/onnxruntime.dll")
+    add_custom_command(TARGET litepss POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ORT_ROOT}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:litepss>")
+endif()
