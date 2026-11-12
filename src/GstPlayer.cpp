@@ -422,6 +422,19 @@ qint64 GstPlayer::positionMs() const
     return -1;
 }
 
+bool GstPlayer::hasRendered() const
+{
+    if (!m_sink || !hasProp(m_sink, "stats")) return m_playing;
+    GstStructure *st = nullptr;
+    g_object_get(m_sink, "stats", &st, nullptr);
+    guint64 r = 0;
+    if (st) {
+        gst_structure_get_uint64(st, "rendered", &r);
+        gst_structure_free(st);
+    }
+    return r > 0;
+}
+
 qint64 GstPlayer::mediaPositionMs() const
 {
     if (!m_sh) return -1;
@@ -548,6 +561,15 @@ void GstPlayer::pollBus()
             if (gst_navigation_message_get_type(msg) == GST_NAVIGATION_MESSAGE_EVENT) {
                 GstEvent *ev = nullptr;
                 if (gst_navigation_message_parse_event(msg, &ev) && ev) {
+                    gint button = 0;
+                    gdouble mx = 0, my = 0;
+                    if (gst_navigation_event_get_type(ev) == GST_NAVIGATION_EVENT_MOUSE_BUTTON_PRESS &&
+                        gst_navigation_event_parse_mouse_button_event(ev, &button, &mx, &my) && button == 3) {
+                        gst_event_unref(ev);
+                        gst_message_unref(msg);
+                        emit videoContextMenu();
+                        continue;
+                    }
                     if (gst_navigation_event_get_type(ev) == GST_NAVIGATION_EVENT_MOUSE_BUTTON_PRESS) {
                         const bool dbl = m_lastClick.isValid() && m_lastClick.elapsed() < 400;
                         m_lastClick.start();

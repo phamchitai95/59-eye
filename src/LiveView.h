@@ -15,7 +15,7 @@ public:
     explicit LiveView(QWidget *parent = nullptr);
 
     void assign(const ChannelRef &ref);   // dua kenh vao o dang chon
-    void setLayoutCount(int n);           // 1, 4, 9, 16
+    void setLayoutCount(int n);           // 1, 4, 9, 16, 36
     void autoFill();
     void closeAll();
     void closeDisallowed(); // dong o co kenh bi tat / khong co quyen

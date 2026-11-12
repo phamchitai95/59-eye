@@ -164,8 +164,13 @@ void MainWindow::runAutomation(const QStringList &a)
         m_tabs->setCurrentWidget(m_settings);
     } else {
         const int layout = argValue(a, "--layout").toInt();
-        if (layout == 1 || layout == 4 || layout == 9 || layout == 16) m_live->setLayoutCount(layout);
+        if (layout == 1 || layout == 4 || layout == 9 || layout == 16 || layout == 36) m_live->setLayoutCount(layout);
         if (a.contains("--autofill")) m_live->autoFill();
+        // --zoom "8,14": nhap dup o 1 (phong to / thu nho) tai cac giay nay (thu doi luong lien mach)
+        for (const QString &z : argValue(a, "--zoom").split(',', Qt::SkipEmptyParts))
+            QTimer::singleShot(z.toInt() * 1000, this, [this] {
+                if (VideoTile *t = m_live->tile(0)) emit t->doubleClicked(t);
+            });
         if (a.contains("--audio"))
             QTimer::singleShot(4000, this, [this] {
                 if (VideoTile *t = m_live->tile(0)) m_live->onAudioToggle(t);

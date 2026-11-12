@@ -60,6 +60,7 @@ public:
     double kbps() const { return m_kbps; }
     double fps() const { return m_fps; }
     quint64 droppedFrames() const { return m_dropped; }
+    bool hasRendered() const;     // da ve it nhat 1 khung (dung de doi luong khong bi den man hinh)
 
     static double totalKbps();
     static int activeCount();
@@ -74,6 +75,7 @@ signals:
     void error(const QString &msg);
     void endOfStream();
     void videoClicked(bool doubleClick);
+    void videoContextMenu();      // chuot phai tren vung video
 
 private:
     void pollBus();

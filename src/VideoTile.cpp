@@ -1,10 +1,15 @@
 #include "VideoTile.h"
 #include "AdjustDialog.h"
+#include "AppInfo.h"
+#include <QFile>
+#include <QTime>
 #include "ImageSettings.h"
 #include "LightController.h"
 #include "Theme.h"
 #include "Users.h"
 
+#include <QContextMenuEvent>
+#include <QCursor>
 #include <QMenu>
 
 #include <QEvent>
@@ -93,47 +98,76 @@ VideoTile::VideoTile(int index, QWidget *parent) : QFrame(parent), m_index(index
     m_placeholder->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_stack->addWidget(m_placeholder);
 
-    m_video = new QWidget(body);
-    m_video->setAttribute(Qt::WA_NativeWindow);
-    m_video->setAttribute(Qt::WA_NoSystemBackground);
-    m_video->setAutoFillBackground(true);
-    QPalette pal = m_video->palette();
-    pal.setColor(QPalette::Window, QColor("#000000"));
-    m_video->setPalette(pal);
-    m_video->setMinimumSize(80, 45);
-    m_video->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    // 2 lop video native chong len nhau (StackAll: ca 2 deu hien, lop dang chon nam tren)
+    m_videoHost = new QWidget(body);
+    m_videoHost->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    m_videoStack = new QStackedLayout(m_videoHost);
+    m_videoStack->setContentsMargins(0, 0, 0, 0);
+    m_videoStack->setStackingMode(QStackedLayout::StackAll);
+    for (QWidget *&v : m_videos) {
+        v = new QWidget(m_videoHost);
+        v->setAttribute(Qt::WA_NativeWindow);
+        v->setAttribute(Qt::WA_NoSystemBackground);
+        v->setAutoFillBackground(true);
+        QPalette pal = v->palette();
+        pal.setColor(QPalette::Window, QColor("#000000"));
+        v->setPalette(pal);
+        v->setMinimumSize(80, 45);
+        v->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+        v->installEventFilter(this);
+        m_videoStack->addWidget(v);
+    }
+    m_videoStack->setCurrentWidget(m_videos[0]);
     body->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-    m_video->installEventFilter(this);
-    m_stack->addWidget(m_video);
+    m_stack->addWidget(m_videoHost);
     lay->addWidget(body, 1);
 
-    connect(&m_player, &GstPlayer::playing, this, [this] {
-        m_status.clear();
-        m_isError = false;
-        refreshHeader();
-    });
-    connect(&m_player, &GstPlayer::error, this, [this](const QString &msg) {
-        m_status = msg;
-        m_isError = true;
-        m_player.stop();
-        refreshHeader();
-        if (m_autoReconnect && !m_suspended) {
-            const int gen = m_generation;
-            m_status += QStringLiteral(" — thử lại sau 3 giây");
+    for (int k = 0; k < 2; ++k) {
+        GstPlayer *pl = &m_players[k];
+        connect(pl, &GstPlayer::playing, this, [this, k] {
+            if (k != m_cur) return; // lop duoi: cho khung dau tien (checkPending)
+            m_status.clear();
+            m_isError = false;
             refreshHeader();
-            QTimer::singleShot(3000, this, [this, gen] {
-                if (gen == m_generation && !m_suspended && !m_player.isOpen()) start();
-            });
-        }
-    });
-    connect(&m_player, &GstPlayer::endOfStream, this, [this] {
-        m_status = QStringLiteral("Hết dữ liệu");
-        refreshHeader();
-    });
-    connect(&m_player, &GstPlayer::videoClicked, this, [this](bool dbl) {
-        emit clicked(this);
-        if (dbl) emit doubleClicked(this);
-    });
+            emit streamPlaying();
+        });
+        connect(pl, &GstPlayer::error, this, [this, k](const QString &msg) {
+            if (k == m_pend) {
+                // luong moi loi: giu nguyen luong dang hien
+                cancelPending();
+                flashStatus(QStringLiteral("Không mở được luồng %1: %2").arg(m_main ? "HD" : "SD", msg), true);
+                return;
+            }
+            if (k != m_cur) return;
+            m_status = msg;
+            m_isError = true;
+            cur().stop();
+            refreshHeader();
+            if (m_autoReconnect && !m_suspended) {
+                const int gen = m_generation;
+                m_status += QStringLiteral(" — thử lại sau 3 giây");
+                refreshHeader();
+                QTimer::singleShot(3000, this, [this, gen] {
+                    if (gen == m_generation && !m_suspended && !cur().isOpen()) start();
+                });
+            }
+        });
+        connect(pl, &GstPlayer::endOfStream, this, [this, k] {
+            if (k != m_cur) return;
+            m_status = QStringLiteral("Hết dữ liệu");
+            refreshHeader();
+        });
+        connect(pl, &GstPlayer::videoClicked, this, [this](bool dbl) {
+            emit clicked(this);
+            if (dbl) emit doubleClicked(this);
+        });
+        connect(pl, &GstPlayer::videoContextMenu, this, [this] {
+            emit clicked(this);
+            showContextMenu(QCursor::pos());
+        });
+    }
+    m_pendTimer.setInterval(40);
+    connect(&m_pendTimer, &QTimer::timeout, this, &VideoTile::checkPending);
 
     m_headerTimer.setInterval(1000);
     connect(&m_headerTimer, &QTimer::timeout, this, &VideoTile::refreshHeader);
@@ -144,13 +178,16 @@ VideoTile::VideoTile(int index, QWidget *parent) : QFrame(parent), m_index(index
 
 VideoTile::~VideoTile()
 {
-    m_player.stop();
+    m_pendTimer.stop();
+    m_players[0].stop();
+    m_players[1].stop();
 }
 
 void VideoTile::playLive(const ChannelRef &ref, bool mainStream)
 {
     const NvrConfig &n = cfg().nvrs[ref.nvr];
-    const bool keepAudio = (ref == m_ref) && m_params.audio;
+    const bool sameChannel = (ref == m_ref);
+    const bool keepAudio = sameChannel && m_params.audio;
     StreamParams p;
     p.url = cfg().liveUrl(ref, mainStream);
     p.user = n.user;
@@ -165,8 +202,15 @@ void VideoTile::playLive(const ChannelRef &ref, bool mainStream)
     m_params = p;
     m_title = cfg().channelTitle(ref);
     m_autoReconnect = true;
+    if (sameChannel && m_pend >= 0 && !m_suspended && p.url == m_curParams.url && p.audio == m_curParams.audio) {
+        cancelPending(); // vd. phong to roi thu nho ngay khi HD chua kip co hinh: SD van dang hien
+        refreshHeader();
+        return;
+    }
+    const bool seamless = sameChannel && !m_suspended && cur().isOpen() && cur().hasRendered();
     m_suspended = false;
-    start();
+    if (seamless) startSeamless();
+    else start();
 }
 
 void VideoTile::playCustom(const StreamParams &p, const QString &title, bool autoReconnect,
@@ -183,18 +227,83 @@ void VideoTile::playCustom(const StreamParams &p, const QString &title, bool aut
 
 void VideoTile::start()
 {
+    cancelPending();
     ++m_generation;
     m_status = QStringLiteral("Đang kết nối...");
     m_isError = false;
-    m_stack->setCurrentWidget(m_video);
-    applyImage();
+    m_stack->setCurrentWidget(m_videoHost);
+    m_videoStack->setCurrentWidget(m_videos[m_cur]);
+    applyImage(&cur());
     refreshHeader();
-    m_player.open(m_params, quintptr(m_video->winId()));
+    m_curParams = m_params;
+    cur().open(m_params, quintptr(m_videos[m_cur]->winId()));
 }
 
-void VideoTile::applyImage()
+void VideoTile::startSeamless()
 {
-    m_player.setColor(ImageSettings::get(m_imageRef));
+    cancelPending();
+    ++m_generation;
+    m_pend = 1 - m_cur;
+    GstPlayer &next = m_players[m_pend];
+    applyImage(&next);
+    // lop moi nam duoi lop dang hien (StackAll) nen van ve duoc nhung chua lo ra
+    m_videoStack->setCurrentWidget(m_videos[m_cur]);
+    m_videos[m_cur]->raise();
+    m_pendClock.start();
+    m_pendTimer.start();
+    next.open(m_params, quintptr(m_videos[m_pend]->winId()));
+    refreshHeader();
+}
+
+void VideoTile::checkPending()
+{
+    if (m_pend < 0) {
+        m_pendTimer.stop();
+        return;
+    }
+    GstPlayer &next = m_players[m_pend];
+    if (next.isOpen() && next.hasRendered()) {
+        // luong moi da co hinh: dua len tren roi dung luong cu
+        if (qEnvironmentVariableIsSet("LITEPSS_HTTP_LOG")) {
+            QFile f(AppInfo::dataFile("switch.log"));
+            if (f.open(QIODevice::Append | QIODevice::Text))
+                f.write(QStringLiteral("%1 o%2 %3 co hinh sau %4 ms (hinh cu van hien trong luc cho)\n")
+                            .arg(QTime::currentTime().toString("HH:mm:ss.zzz")).arg(m_index + 1)
+                            .arg(m_main ? "HD" : "SD").arg(m_pendClock.elapsed()).toUtf8());
+        }
+        const int old = m_cur;
+        m_curParams = m_params;
+        m_cur = m_pend;
+        m_pend = -1;
+        m_pendTimer.stop();
+        m_videoStack->setCurrentWidget(m_videos[m_cur]);
+        m_videos[m_cur]->raise();
+        m_players[old].stop();
+        m_status.clear();
+        m_isError = false;
+        refreshHeader();
+        emit streamPlaying();
+        return;
+    }
+    if (m_pendClock.elapsed() > 10000) {
+        cancelPending();
+        flashStatus(QStringLiteral("Luồng %1 không có hình sau 10 giây, giữ luồng cũ").arg(m_main ? "HD" : "SD"), true);
+    }
+}
+
+void VideoTile::cancelPending()
+{
+    m_pendTimer.stop();
+    if (m_pend < 0) return;
+    m_players[m_pend].stop();
+    m_pend = -1;
+    m_videoStack->setCurrentWidget(m_videos[m_cur]);
+    m_videos[m_cur]->raise();
+}
+
+void VideoTile::applyImage(GstPlayer *p)
+{
+    p->setColor(ImageSettings::get(m_imageRef));
 }
 
 void VideoTile::setAudio(bool on)
@@ -202,13 +311,16 @@ void VideoTile::setAudio(bool on)
     if (!hasStream() || m_params.audio == on) return;
     m_params.audio = on;
     m_audioBtn->setChecked(on);
-    if (!m_suspended) start();
+    if (m_suspended) return;
+    if (m_params.live && cur().isOpen() && cur().hasRendered()) startSeamless();
+    else start();
 }
 
 void VideoTile::stopStream()
 {
+    cancelPending();
     ++m_generation;
-    m_player.stop();
+    cur().stop();
     m_ref = {};
     m_imageRef = {};
     m_params = {};
@@ -224,8 +336,9 @@ void VideoTile::stopStream()
 void VideoTile::suspend()
 {
     if (!hasStream() || m_suspended) return;
+    cancelPending();
     ++m_generation;
-    m_player.stop();
+    cur().stop();
     m_suspended = true;
     refreshHeader();
 }
@@ -249,7 +362,7 @@ void VideoTile::setSelected(bool s)
 void VideoTile::openAdjust()
 {
     if (!hasStream() || !users().can(Users::Adjust)) return;
-    AdjustDialog dlg(&m_player, m_imageRef, m_title, this);
+    AdjustDialog dlg(&cur(), m_imageRef, m_title, this);
     dlg.exec();
 }
 
@@ -291,7 +404,7 @@ void VideoTile::openLightMenu()
         add(QStringLiteral("Bật đèn"), LightController::On);
         add(QStringLiteral("Tắt đèn"), LightController::Off);
         if (c.canAuto) add(QStringLiteral("Tự động (theo cảm biến)"), LightController::Auto);
-        menu.exec(m_lightBtn->mapToGlobal(QPoint(0, m_lightBtn->height())));
+        menu.exec(m_lightBtn->isVisible() ? m_lightBtn->mapToGlobal(QPoint(0, m_lightBtn->height())) : QCursor::pos());
     });
 }
 
@@ -303,10 +416,11 @@ static QString dotStyle(const QColor &c)
 void VideoTile::refreshHeader()
 {
     const bool has = hasStream();
-    m_audioBtn->setVisible(has && users().can(Users::Audio));
-    m_adjustBtn->setVisible(has && users().can(Users::Adjust));
+    const bool small = compact();
+    m_audioBtn->setVisible(has && !small && users().can(Users::Audio));
+    m_adjustBtn->setVisible(has && !small && users().can(Users::Adjust));
     // chi o xem truc tiep cua dau ghi Dahua (camera le RTSP khong co thong tin camera)
-    m_lightBtn->setVisible(has && m_ref.valid() && users().can(Users::Light) && m_ref.nvr < cfg().nvrs.size()
+    m_lightBtn->setVisible(has && !small && m_ref.valid() && users().can(Users::Light) && m_ref.nvr < cfg().nvrs.size()
                            && cfg().nvrs[m_ref.nvr].isDahua());
     if (!has) {
         m_dot->setStyleSheet(dotStyle(QColor("#4a3639")));
@@ -334,29 +448,33 @@ void VideoTile::refreshHeader()
     } else {
         if (!m_params.live) parts << QStringLiteral("XEM LẠI");
         else parts << (m_main ? QStringLiteral("HD") : QStringLiteral("SD"));
-        const QString res = m_player.resolution();
+        if (isSwitching()) parts << (m_main ? QStringLiteral("đang mở HD…") : QStringLiteral("đang mở SD…"));
+        const QString res = cur().resolution();
         if (!res.isEmpty()) parts << res;
-        parts << QStringLiteral("%1 fps").arg(qRound(m_player.fps()));
-        if (m_player.droppedFrames() > 0) parts << QStringLiteral("rớt %1").arg(m_player.droppedFrames());
-        parts << QStringLiteral("%1 kbps").arg(qRound(m_player.kbps()));
-        if (m_params.audio && m_player.isPlaying()) {
-            if (m_player.audioActive()) parts << QStringLiteral("♪ %1").arg(m_player.audioCodec());
-            else if (!m_player.hasAudioStream()) parts << QStringLiteral("camera không gửi tiếng");
-            else parts << QStringLiteral("không phát được tiếng %1").arg(m_player.audioCodec());
+        parts << QStringLiteral("%1 fps").arg(qRound(cur().fps()));
+        if (cur().droppedFrames() > 0) parts << QStringLiteral("rớt %1").arg(cur().droppedFrames());
+        parts << QStringLiteral("%1 kbps").arg(qRound(cur().kbps()));
+        if (m_params.audio && cur().isPlaying()) {
+            if (cur().audioActive()) parts << QStringLiteral("♪ %1").arg(cur().audioCodec());
+            else if (!cur().hasAudioStream()) parts << QStringLiteral("camera không gửi tiếng");
+            else parts << QStringLiteral("không phát được tiếng %1").arg(cur().audioCodec());
         }
     }
     m_dot->setStyleSheet(dotStyle(dot));
     const bool showFlash = !m_flash.isEmpty();
     m_info->setText(showFlash ? m_flash : parts.join(QStringLiteral("  ·  ")));
+    // o rat nho: chi giu cham trang thai + ten kenh (thong so xem o tooltip / khi phong to)
+    m_info->setVisible(!small || showFlash || m_isError);
+    if (small) m_name->setToolTip(QStringLiteral("%1\n%2").arg(m_title, parts.join(QStringLiteral("  ·  "))));
     const char *col = showFlash ? (m_flashError ? "#f08a84" : "#ffb4a8") : (m_isError ? "#f08a84" : "#a8959a");
     m_info->setStyleSheet(QStringLiteral("color:%1;font-size:11px;background:transparent;").arg(col));
-    const QString dec = m_player.decoderName();
+    const QString dec = cur().decoderName();
     m_headerBar->setToolTip(dec.isEmpty() ? QString() : QStringLiteral("Bộ giải mã: %1").arg(dec));
 }
 
 bool VideoTile::eventFilter(QObject *o, QEvent *e)
 {
-    if (o == m_headerBar || o == m_name || o == m_info || o == m_video || o == m_placeholder) {
+    if (o == m_headerBar || o == m_name || o == m_info || o == m_videos[0] || o == m_videos[1] || o == m_placeholder) {
         if (e->type() == QEvent::MouseButtonPress) {
             emit clicked(this);
         } else if (e->type() == QEvent::MouseButtonDblClick) {
@@ -372,5 +490,29 @@ void VideoTile::resizeEvent(QResizeEvent *e)
     QFrame::resizeEvent(e);
     // Uu tien ten kenh: thong so chi chiem toi da ~45% thanh tieu de (o nho trong luoi 4x4)
     m_info->setMaximumWidth(qMax(40, int(width() * 0.40) - 40));
-    m_player.expose();
+    m_players[0].expose();
+    m_players[1].expose();
+}
+
+void VideoTile::contextMenuEvent(QContextMenuEvent *e)
+{
+    emit clicked(this);
+    showContextMenu(e->globalPos());
+}
+
+// Menu chuot phai: dung duoc o moi co o, can nhat o luoi 6x6 khi thanh tieu de an het nut
+void VideoTile::showContextMenu(const QPoint &globalPos)
+{
+    if (!hasStream()) return;
+    QMenu menu(this);
+    menu.addAction(m_title)->setEnabled(false);
+    menu.addSeparator();
+    if (m_params.live) menu.addAction(QStringLiteral("Phóng to / thu nhỏ"), this, [this] { emit doubleClicked(this); });
+    if (users().can(Users::Audio))
+        menu.addAction(audioOn() ? QStringLiteral("Tắt âm thanh") : QStringLiteral("Bật âm thanh"), this,
+                       [this] { emit audioToggleRequested(this); });
+    if (users().can(Users::Adjust)) menu.addAction(QStringLiteral("Chỉnh hình ảnh..."), this, &VideoTile::openAdjust);
+    if (m_ref.valid() && users().can(Users::Light) && m_ref.nvr < cfg().nvrs.size() && cfg().nvrs[m_ref.nvr].isDahua())
+        menu.addAction(QStringLiteral("Đèn camera..."), this, &VideoTile::openLightMenu);
+    menu.exec(globalPos);
 }

@@ -106,7 +106,7 @@ PlaybackView::PlaybackView(QWidget *parent)
     connect(fwd, &QPushButton::clicked, this, [this] { jump(30); });
     connect(m_speed, &QComboBox::currentIndexChanged, this, &PlaybackView::applySpeed);
     connect(m_tile, &VideoTile::audioToggleRequested, this, &PlaybackView::toggleAudio);
-    connect(m_tile->player(), &GstPlayer::playing, this, [this] {
+    connect(m_tile, &VideoTile::streamPlaying, this, [this] {
         m_wall.start();
         m_wallBaseMs = 0;
     });

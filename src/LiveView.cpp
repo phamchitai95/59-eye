@@ -20,13 +20,13 @@ LiveView::LiveView(QWidget *parent) : QWidget(parent)
     bar->setSpacing(6);
     m_layoutGroup = new QButtonGroup(this);
     m_layoutGroup->setExclusive(true);
-    for (int n : {1, 4, 9, 16}) {
+    for (int n : {1, 4, 9, 16, 36}) {
         const int side = int(std::sqrt(double(n)));
         auto *b = new QToolButton(this);
         b->setIcon(Icons::grid(side));
         b->setIconSize(QSize(18, 18));
         b->setCheckable(true);
-        b->setToolTip(QStringLiteral("Lưới %1x%1").arg(side));
+        b->setToolTip(n == 36 ? QStringLiteral("Lưới 6x6 (đủ 32 kênh một đầu ghi)") : QStringLiteral("Lưới %1x%1").arg(side));
         b->setFixedSize(34, 30);
         m_layoutGroup->addButton(b, n);
         connect(b, &QToolButton::clicked, this, [this, n] { setLayoutCount(n); });
@@ -56,7 +56,7 @@ LiveView::LiveView(QWidget *parent) : QWidget(parent)
     m_grid->setSpacing(4);
     root->addWidget(host, 1);
 
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < 36; ++i) {
         auto *t = new VideoTile(i, host);
         connect(t, &VideoTile::clicked, this, [this](VideoTile *x) { select(x->index()); });
         connect(t, &VideoTile::doubleClicked, this, &LiveView::onDoubleClicked);
@@ -94,7 +94,7 @@ void LiveView::relayout()
 {
     if (QAbstractButton *b = m_layoutGroup->button(m_count)) b->setChecked(true);
     for (VideoTile *t : m_tiles) m_grid->removeWidget(t);
-    for (int r = 0; r < 4; ++r) {
+    for (int r = 0; r < 6; ++r) {
         m_grid->setRowStretch(r, 0);
         m_grid->setColumnStretch(r, 0);
     }
@@ -132,7 +132,7 @@ void LiveView::relayout()
 
 void LiveView::syncStreams()
 {
-    const int limit = m_maximized >= 0 ? 16 : m_count;
+    const int limit = m_maximized >= 0 ? int(m_tiles.size()) : m_count;
     for (int i = 0; i < limit; ++i) {
         VideoTile *t = m_tiles[i];
         if (!t->channel().valid()) continue;
