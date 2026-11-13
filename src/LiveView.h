@@ -15,6 +15,7 @@ public:
     explicit LiveView(QWidget *parent = nullptr);
 
     void assign(const ChannelRef &ref);   // dua kenh vao o dang chon
+    void assignTo(int i, const ChannelRef &ref); // dua kenh vao o i (keo tha)
     void setLayoutCount(int n);           // 1, 4, 9, 16, 36
     void autoFill();
     void closeAll();

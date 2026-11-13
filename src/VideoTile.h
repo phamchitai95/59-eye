@@ -8,6 +8,14 @@
 
 class QStackedLayout;
 class QToolButton;
+class QMimeData;
+
+// Keo tha kenh (tu cay thiet bi sang o xem truc tiep): du lieu "nvr,kenh"
+namespace ChannelDrag {
+inline const char *mime() { return "application/x-59eye-channel"; }
+QMimeData *encode(const ChannelRef &ref);
+bool decode(const QMimeData *m, ChannelRef *out);
+}
 
 // Mot o video: thanh tieu de (cham trang thai, ten kenh, thong so, nut loa, nut chinh hinh)
 // + vung video native de GStreamer ve thang len.
@@ -42,6 +50,7 @@ public:
     void setSelected(bool s);
     void openAdjust();
     void setPlaceholderText(const QString &t) { m_placeholderText = t; refreshHeader(); }
+    void setChannelDropEnabled(bool on);  // nhan kenh keo tu cay thiet bi (chi o xem truc tiep)
 
 signals:
     void clicked(VideoTile *t);
@@ -49,11 +58,16 @@ signals:
     void audioToggleRequested(VideoTile *t);
     void countRequested(const ChannelRef &ref); // chuot phai -> Dem so nguoi
     void streamPlaying(); // bo phat dang hien bat dau chay (thay cho player()->playing khi doi lop)
+    void channelDropped(VideoTile *t, const ChannelRef &ref);
 
 protected:
     bool eventFilter(QObject *o, QEvent *e) override;
     void resizeEvent(QResizeEvent *e) override;
     void contextMenuEvent(QContextMenuEvent *e) override;
+    void dragEnterEvent(QDragEnterEvent *e) override;
+    void dragMoveEvent(QDragMoveEvent *e) override;
+    void dragLeaveEvent(QDragLeaveEvent *e) override;
+    void dropEvent(QDropEvent *e) override;
 
 private:
     void start();
@@ -100,8 +114,10 @@ private:
     bool m_autoReconnect = false;
     bool m_suspended = false;
     bool m_selected = false;
+    bool m_dropHover = false;  // dang co kenh keo ngang qua
+    void applyFrameStyle();
     QString m_status;
     bool m_isError = false;
     int m_generation = 0;
-    QString m_placeholderText = QStringLiteral("Nhấp đúp vào một kênh bên trái để mở\n(hoặc bấm \"Tự điền kênh\")");
+    QString m_placeholderText = QStringLiteral("Nhấp đúp hoặc kéo một kênh bên trái thả vào đây\n(hoặc bấm \"Tự điền kênh\")");
 };

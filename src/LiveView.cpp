@@ -61,6 +61,8 @@ LiveView::LiveView(QWidget *parent) : QWidget(parent)
         connect(t, &VideoTile::clicked, this, [this](VideoTile *x) { select(x->index()); });
         connect(t, &VideoTile::doubleClicked, this, &LiveView::onDoubleClicked);
         connect(t, &VideoTile::audioToggleRequested, this, &LiveView::onAudioToggle);
+        t->setChannelDropEnabled(true);
+        connect(t, &VideoTile::channelDropped, this, [this](VideoTile *x, const ChannelRef &ref) { assignTo(x->index(), ref); });
         m_tiles.push_back(t);
     }
     relayout();
@@ -155,6 +157,13 @@ void LiveView::assign(const ChannelRef &ref)
     const int i = m_maximized >= 0 ? m_maximized : m_selected;
     m_tiles[i]->playLive(ref, wantMain(i));
     if (m_maximized < 0) select((i + 1) % m_count);
+}
+
+void LiveView::assignTo(int i, const ChannelRef &ref)
+{
+    if (i < 0 || i >= m_tiles.size() || !users().canSee(ref)) return;
+    m_tiles[i]->playLive(ref, wantMain(i));
+    select(i);
 }
 
 void LiveView::autoFill()

@@ -1,6 +1,8 @@
 #include "VideoTile.h"
 #include "AdjustDialog.h"
 #include "AppInfo.h"
+#include <QDragEnterEvent>
+#include <QMimeData>
 #include <QFile>
 #include <QTime>
 #include "ImageSettings.h"
@@ -353,10 +355,76 @@ void VideoTile::resume()
 void VideoTile::setSelected(bool s)
 {
     m_selected = s;
+    applyFrameStyle();
+}
+
+void VideoTile::applyFrameStyle()
+{
+    // Vien do khi dang chon; vien do sang day hon khi dang co kenh keo ngang qua (cho biet se tha vao o nao)
+    const bool hi = m_selected || m_dropHover;
     setStyleSheet(QStringLiteral(
-        "QFrame#tile{background:#0a0707;border:1px solid %1;border-radius:6px;}"
+        "QFrame#tile{background:#0a0707;border:%3px solid %1;border-radius:6px;}"
         "QWidget#tileHeader{background:%2;border-top-left-radius:5px;border-top-right-radius:5px;}")
-        .arg(s ? "#e53935" : "#2a1b1d", s ? "#3a1418" : "#171011"));
+        .arg(m_dropHover ? "#ff5a52" : hi ? "#e53935" : "#2a1b1d", hi ? "#3a1418" : "#171011")
+        .arg(m_dropHover ? 2 : 1));
+}
+
+// ---- keo tha kenh ----
+QMimeData *ChannelDrag::encode(const ChannelRef &ref)
+{
+    auto *m = new QMimeData;
+    m->setData(mime(), QByteArray::number(ref.nvr) + ',' + QByteArray::number(ref.ch));
+    return m;
+}
+
+bool ChannelDrag::decode(const QMimeData *m, ChannelRef *out)
+{
+    if (!m || !m->hasFormat(mime())) return false;
+    const QList<QByteArray> p = m->data(mime()).split(',');
+    if (p.size() != 2) return false;
+    bool a = false, b = false;
+    const ChannelRef r{p[0].toInt(&a), p[1].toInt(&b)};
+    if (!a || !b || !r.valid()) return false;
+    if (out) *out = r;
+    return true;
+}
+
+void VideoTile::setChannelDropEnabled(bool on)
+{
+    setAcceptDrops(on);
+    // vung video la cua so native: tu nhan tha de khong phu thuoc viec Windows chuyen len cua so cha
+    for (QWidget *v : m_videos) v->setAcceptDrops(on);
+    m_placeholder->setAcceptDrops(on);
+}
+
+void VideoTile::dragEnterEvent(QDragEnterEvent *e)
+{
+    if (!ChannelDrag::decode(e->mimeData(), nullptr)) return e->ignore();
+    e->setDropAction(Qt::CopyAction);
+    e->accept();
+    if (!m_dropHover) { m_dropHover = true; applyFrameStyle(); }
+}
+
+void VideoTile::dragMoveEvent(QDragMoveEvent *e)
+{
+    if (!ChannelDrag::decode(e->mimeData(), nullptr)) return e->ignore();
+    e->setDropAction(Qt::CopyAction);
+    e->accept();
+}
+
+void VideoTile::dragLeaveEvent(QDragLeaveEvent *)
+{
+    if (m_dropHover) { m_dropHover = false; applyFrameStyle(); }
+}
+
+void VideoTile::dropEvent(QDropEvent *e)
+{
+    if (m_dropHover) { m_dropHover = false; applyFrameStyle(); }
+    ChannelRef ref;
+    if (!ChannelDrag::decode(e->mimeData(), &ref)) return e->ignore();
+    e->setDropAction(Qt::CopyAction);
+    e->accept();
+    emit channelDropped(this, ref);
 }
 
 void VideoTile::openAdjust()
@@ -474,6 +542,15 @@ void VideoTile::refreshHeader()
 
 bool VideoTile::eventFilter(QObject *o, QEvent *e)
 {
+    if (acceptDrops() && (o == m_videos[0] || o == m_videos[1] || o == m_placeholder)) {
+        switch (e->type()) {
+        case QEvent::DragEnter: dragEnterEvent(static_cast<QDragEnterEvent *>(e)); return true;
+        case QEvent::DragMove: dragMoveEvent(static_cast<QDragMoveEvent *>(e)); return true;
+        case QEvent::DragLeave: dragLeaveEvent(static_cast<QDragLeaveEvent *>(e)); return true;
+        case QEvent::Drop: dropEvent(static_cast<QDropEvent *>(e)); return true;
+        default: break;
+        }
+    }
     if (o == m_headerBar || o == m_name || o == m_info || o == m_videos[0] || o == m_videos[1] || o == m_placeholder) {
         if (e->type() == QEvent::MouseButtonPress) {
             emit clicked(this);

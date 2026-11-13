@@ -26,6 +26,9 @@
 #include <QHash>
 #include <QHeaderView>
 #include <QMenu>
+#include <QMimeData>
+#include <QDragEnterEvent>
+#include <memory>
 #include <QProcess>
 #include <QScreen>
 #include <QSplitter>
@@ -46,9 +49,27 @@ MainWindow::MainWindow()
 #endif
 
     auto *split = new QSplitter(this);
-    m_tree = new QTreeWidget(split);
+    // Cay thiet bi: keo mot kenh sang o xem truc tiep de gan vao o do
+    class ChannelTree : public QTreeWidget {
+    public:
+        using QTreeWidget::QTreeWidget;
+    protected:
+        QStringList mimeTypes() const override { return {QString::fromLatin1(ChannelDrag::mime())}; }
+        QMimeData *mimeData(const QList<QTreeWidgetItem *> &items) const override
+        {
+            if (items.size() != 1) return nullptr;
+            const QVariant v = items.first()->data(0, Qt::UserRole);
+            if (!v.isValid()) return nullptr; // dong dau ghi: khong keo
+            const QPoint p = v.toPoint();
+            return ChannelDrag::encode({p.x(), p.y()});
+        }
+    };
+    m_tree = new ChannelTree(split);
+    m_tree->setDragEnabled(true);
+    m_tree->setDragDropMode(QAbstractItemView::DragOnly);
+    m_tree->setDefaultDropAction(Qt::CopyAction);
     m_tree->setHeaderLabel(QStringLiteral("THIẾT BỊ"));
-    m_tree->setToolTip(QStringLiteral("Nhấp đúp vào kênh để mở"));
+    m_tree->setToolTip(QStringLiteral("Nhấp đúp vào kênh để mở, hoặc kéo kênh thả vào một ô xem trực tiếp"));
     m_tree->setIconSize(QSize(16, 16));
     m_tree->setIndentation(14);
     m_tree->setMinimumWidth(210);
@@ -185,6 +206,28 @@ void MainWindow::runAutomation(const QStringList &a)
             QTimer::singleShot(z.toInt() * 1000, this, [this] {
                 if (VideoTile *t = m_live->tile(0)) emit t->doubleClicked(t);
             });
+        // --drop "3:1:5,8:1:6": giay:o:kenh - gia lap tha kenh (thiet bi 0) vao o (dem tu 0), nham vao
+        // widget con o giua o (vung video native hoac o trong) nhu khi tha chuot that
+        for (const QString &d : argValue(a, "--drop").split(',', Qt::SkipEmptyParts)) {
+            const QStringList f = d.split(':');
+            if (f.size() != 3) continue;
+            const int tileNo = f[1].toInt(), ch = f[2].toInt();
+            QTimer::singleShot(f[0].toInt() * 1000, this, [this, tileNo, ch] {
+                VideoTile *t = m_live->tile(tileNo);
+                if (!t) return;
+                const QPoint c = t->rect().center();
+                QWidget *target = t->childAt(c);
+                if (!target) target = t;
+                const QPoint lp = target->mapFrom(t, c);
+                std::unique_ptr<QMimeData> md(ChannelDrag::encode({0, ch}));
+                QDragEnterEvent enter(lp, Qt::CopyAction, md.get(), Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(target, &enter);
+                QDropEvent drop(QPointF(lp), Qt::CopyAction, md.get(), Qt::LeftButton, Qt::NoModifier);
+                QApplication::sendEvent(target, &drop);
+                qInfo("drop tile=%d ch=%d target=%s accepted=%d -> now ch=%d", tileNo, ch,
+                      target->metaObject()->className(), int(drop.isAccepted()), t->channel().ch);
+            });
+        }
         if (a.contains("--audio"))
             QTimer::singleShot(4000, this, [this] {
                 if (VideoTile *t = m_live->tile(0)) m_live->onAudioToggle(t);
@@ -276,6 +319,7 @@ void MainWindow::buildTree()
         top->setIcon(0, Icons::recorder());
         top->setToolTip(0, nvr.host);
         top->setData(0, Qt::UserRole + 1, n);
+        top->setFlags(top->flags() & ~Qt::ItemIsDragEnabled);
         QFont bf = top->font(0);
         bf.setBold(true);
         top->setFont(0, bf);
