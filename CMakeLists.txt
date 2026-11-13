@@ -27,7 +27,7 @@ if(WIN32)
     target_link_libraries(gst_deps INTERFACE pdh psapi dwmapi crypt32)
 else()
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-video-1.0 gstreamer-app-1.0)
+    pkg_check_modules(GST REQUIRED IMPORTED_TARGET gstreamer-1.0 gstreamer-video-1.0 gstreamer-app-1.0 gstreamer-rtsp-1.0)
     target_link_libraries(gst_deps INTERFACE PkgConfig::GST)
 endif()
 
