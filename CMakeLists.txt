@@ -21,7 +21,7 @@ if(WIN32)
         "${GST_ROOT}/lib/glib-2.0/include")
     # KHONG them ${GST_ROOT}/lib vao duong tim kiem: thu muc do co libmingwex/libstdc++/libgcc rieng
     # cua GStreamer (UCRT) se bi lay nham thay cho runtime cua trinh bien dich. Link dich danh file .dll.a.
-    foreach(lib gstapp-1.0 gstvideo-1.0 gstbase-1.0 gstreamer-1.0 gobject-2.0 glib-2.0)
+    foreach(lib gstapp-1.0 gstrtsp-1.0 gstvideo-1.0 gstbase-1.0 gstreamer-1.0 gobject-2.0 glib-2.0)
         target_link_libraries(gst_deps INTERFACE "${GST_ROOT}/lib/lib${lib}.dll.a")
     endforeach()
     target_link_libraries(gst_deps INTERFACE pdh psapi dwmapi crypt32)
