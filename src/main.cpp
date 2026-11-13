@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
     if (!QFile::exists(path)) {
         QFile f(path);
         if (!f.open(QIODevice::WriteOnly) ||
-            f.write("{\n  \"nvrs\": [],\n  \"liveLatencyMs\": 200,\n  \"playbackLatencyMs\": 500,\n  \"videoSink\": \"\"\n}\n") < 0) {
+            f.write("{\n  \"nvrs\": [],\n  \"liveLatencyMs\": 500,\n  \"playbackLatencyMs\": 500,\n  \"videoSink\": \"\"\n}\n") < 0) {
             QMessageBox::critical(nullptr, "59-eye", QStringLiteral("Không tạo được %1").arg(QDir::toNativeSeparators(path)));
             return 1;
         }
