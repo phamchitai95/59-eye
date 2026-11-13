@@ -10,6 +10,7 @@
 #include <atomic>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <gst/base/gstbasesink.h>
 #include <mutex>
 
@@ -38,7 +39,46 @@ struct GstPlayer::Shared {
     GstElement *sink = nullptr;
     std::vector<qint64> renderAt;
     std::vector<qint64> lateBy;
+    // gian deu nhip (chi luong xu ly cua queue src cham vao)
+    qint64 paceIn = -1, paceOut = -1;
+    double paceD = 0;
+    int paceN = 0;
 };
+
+// Gian deu nhip hien khung xem truc tiep.
+// Camera 2K cua dau ghi chi chay 20 fps, lay 4/5 khung cua cam bien 25 Hz -> moc thoi gian 40-40-40-80 ms;
+// ve dung moc thi cu 200 ms lai khung lai 80 ms (giat nhe). O day uoc luong khoang cach trung binh D va
+// dat lai PTS = PTS truoc + D, keo dan ve moc that (sai lech toi da vai chuc ms, khong troi).
+// Gap moc nhay lon (mat khung, dau ghi ngung gui) thi bam lai moc that ngay.
+static GstPadProbeReturn onPace(GstPad *, GstPadProbeInfo *info, gpointer ud)
+{
+    auto *sh = static_cast<GstPlayer::Shared *>(ud);
+    GstBuffer *b = GST_PAD_PROBE_INFO_BUFFER(info);
+    if (!b || !GST_BUFFER_PTS_IS_VALID(b)) return GST_PAD_PROBE_OK;
+    const qint64 in = qint64(GST_BUFFER_PTS(b));
+    qint64 out = in;
+    if (sh->paceIn >= 0) {
+        const qint64 dIn = in - sh->paceIn;
+        if (dIn > 0 && dIn < 300 * GST_MSECOND) {
+            const double a = sh->paceN < 30 ? 0.15 : 0.03;
+            sh->paceD = sh->paceD > 0 ? sh->paceD * (1 - a) + dIn * a : double(dIn);
+            ++sh->paceN;
+            const qint64 pred = sh->paceOut + qint64(sh->paceD);
+            const qint64 err = in - pred;
+            if (sh->paceN >= 8 && std::llabs(err) < 120 * GST_MSECOND) out = pred + err / 8;
+        }
+    }
+    sh->paceIn = in;
+    sh->paceOut = out;
+    if (out != in) {
+        b = gst_buffer_make_writable(b);
+        GST_BUFFER_PTS(b) = GstClockTime(out);
+        GST_BUFFER_DTS(b) = GST_CLOCK_TIME_NONE;
+        if (sh->paceD > 0) GST_BUFFER_DURATION(b) = GstClockTime(sh->paceD);
+        GST_PAD_PROBE_INFO_DATA(info) = b;
+    }
+    return GST_PAD_PROBE_OK;
+}
 
 static qint64 s_t0 = 0;
 static GstPadProbeReturn onSinkBuf(GstPad *, GstPadProbeInfo *info, gpointer ud)
@@ -343,6 +383,16 @@ bool GstPlayer::open(const StreamParams &p, quintptr windowHandle)
     // thoi gian thuc thay vi tre dan.
     if (p.live && hasProp(m_sink, "max-lateness"))
         g_object_set(m_sink, "max-lateness", gint64(1000 * GST_MSECOND), nullptr);
+    // Gian deu nhip (xem truc tiep, khong tua). LITEPSS_PACING=0/1 ghi de cau hinh de so sanh.
+    {
+        const QByteArray ev = qgetenv("LITEPSS_PACING");
+        const bool pace = ev.isEmpty() ? cfg().liveSmoothPacing : ev != "0";
+        if (p.live && p.sync && p.speed <= 1.01 && pace) {
+            GstPad *qp = gst_element_get_static_pad(queue, "src");
+            gst_pad_add_probe(qp, GST_PAD_PROBE_TYPE_BUFFER, onPace, m_sh, nullptr);
+            gst_object_unref(qp);
+        }
+    }
     // LITEPSS_HITCH=1: do do deu nhip ve (them vao --stats), chi de chan doan
     if (qgetenv("LITEPSS_HITCH") == "1") {
         m_sh->sink = m_sink;

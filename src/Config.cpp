@@ -72,6 +72,7 @@ bool AppConfig::load(const QString &path, QString *error)
     playbackLatencyMs = m_root.value("playbackLatencyMs").toInt(500);
     videoSink = m_root.value("videoSink").toString();
     liveQueueLeaky = m_root.value("liveQueueLeaky").toBool(false);
+    liveSmoothPacing = m_root.value("liveSmoothPacing").toBool(true);
     updateUrl = m_root.value("updateUrl").toString();
     m_path = path;
     // Ma thiet bi phai co dinh giua cac lan chay (phan quyen dua vao no) -> ghi lai ngay

@@ -45,6 +45,8 @@ public:
     int playbackLatencyMs = 500;
     QString videoSink; // rong = tu chon
     bool liveQueueLeaky = false; // chi de so sanh voi cach cu
+    // Gian deu nhip hien khung xem truc tiep (camera 20 fps gui nhip 40-40-40-80 ms -> giat nhe)
+    bool liveSmoothPacing = true;
     QString updateUrl;           // nguon cap nhat OTA (rong = mac dinh luc build)
 
     QString channelTitle(const ChannelRef &r) const;
