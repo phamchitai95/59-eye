@@ -6,7 +6,11 @@
 #include <gst/video/navigation.h>
 #include <gst/video/videooverlay.h>
 
+#include <QMap>
 #include <atomic>
+#include <algorithm>
+#include <cmath>
+#include <gst/base/gstbasesink.h>
 #include <mutex>
 
 QSet<GstPlayer *> GstPlayer::s_all;
@@ -30,7 +34,38 @@ struct GstPlayer::Shared {
     // vi tri theo moc RTP video (dung khi tua nhanh: dong ho may khong phan anh thoi gian ban ghi)
     std::atomic<qint64> rtpFirst{-1};
     std::atomic<qint64> rtpLast{-1};   // da mo rong qua 32 bit
+    // LITEPSS_HITCH=1 (chan doan): thoi diem ve uoc tinh tung khung (ns dong ho), do tre so voi han
+    GstElement *sink = nullptr;
+    std::vector<qint64> renderAt;
+    std::vector<qint64> lateBy;
 };
+
+static qint64 s_t0 = 0;
+static GstPadProbeReturn onSinkBuf(GstPad *, GstPadProbeInfo *info, gpointer ud)
+{
+    auto *sh = static_cast<GstPlayer::Shared *>(ud);
+    GstBuffer *b = GST_PAD_PROBE_INFO_BUFFER(info);
+    if (!b || !GST_BUFFER_PTS_IS_VALID(b) || !sh->sink) return GST_PAD_PROBE_OK;
+    GstClock *clk = gst_element_get_clock(sh->sink);
+    if (!clk) return GST_PAD_PROBE_OK;
+    const qint64 now = qint64(gst_clock_get_time(clk));
+    gst_object_unref(clk);
+    GstPad *pad = gst_element_get_static_pad(sh->sink, "sink");
+    GstEvent *seg = gst_pad_get_sticky_event(pad, GST_EVENT_SEGMENT, 0);
+    gst_object_unref(pad);
+    if (!seg) return GST_PAD_PROBE_OK;
+    const GstSegment *sg = nullptr;
+    gst_event_parse_segment(seg, &sg);
+    const qint64 rt = qint64(gst_segment_to_running_time(sg, GST_FORMAT_TIME, GST_BUFFER_PTS(b)));
+    gst_event_unref(seg);
+    const qint64 deadline = qint64(gst_element_get_base_time(sh->sink)) + rt +
+                            qint64(gst_base_sink_get_latency(GST_BASE_SINK(sh->sink)));
+    if (!s_t0) s_t0 = now;
+    std::lock_guard<std::mutex> lk(sh->m);
+    sh->renderAt.push_back(std::max(now, deadline));
+    sh->lateBy.push_back(now - deadline);
+    return GST_PAD_PROBE_OK;
+}
 
 static void trackRtp(GstPlayer::Shared *sh, GstBuffer *b)
 {
@@ -303,7 +338,18 @@ bool GstPlayer::open(const StreamParams &p, quintptr windowHandle)
     // Thu phong chat luong cao (hinh 704x576 phong len o to bot rang cua)
     if (hasProp(m_sink, "sampling-method")) gst_util_set_object_arg(G_OBJECT(m_sink), "sampling-method", "anisotropic");
     applyColor();
-
+    // d3d12videosink mac dinh vut moi khung tre qua 5 ms -> mang/dau ghi cham mot nhip la hinh giat.
+    // Ve tre van hon vut (vut = dung hinh + nhay coc). Gioi han 1 giay de neu may qua tai thi van bam
+    // thoi gian thuc thay vi tre dan.
+    if (p.live && hasProp(m_sink, "max-lateness"))
+        g_object_set(m_sink, "max-lateness", gint64(1000 * GST_MSECOND), nullptr);
+    // LITEPSS_HITCH=1: do do deu nhip ve (them vao --stats), chi de chan doan
+    if (qgetenv("LITEPSS_HITCH") == "1") {
+        m_sh->sink = m_sink;
+        GstPad *sp = gst_element_get_static_pad(m_sink, "sink");
+        gst_pad_add_probe(sp, GST_PAD_PROBE_TYPE_BUFFER, onSinkBuf, m_sh, nullptr);
+        gst_object_unref(sp);
+    }
     gst_bin_add_many(GST_BIN(m_pipe), src, dec, queue, m_sink, nullptr);
     gst_element_link(queue, m_sink);
 
@@ -503,10 +549,45 @@ QString GstPlayer::statsSummary()
     int i = 0;
     for (GstPlayer *p : s_all) {
         const double secs = p->m_sessionClock.isValid() ? p->m_sessionClock.elapsed() / 1000.0 : 0;
+        QString hitch;
+        if (p->m_sh && qgetenv("LITEPSS_HITCH") == "1") {
+            std::vector<qint64> ra, lb;
+            { std::lock_guard<std::mutex> lk(p->m_sh->m); ra = p->m_sh->renderAt; lb = p->m_sh->lateBy; }
+            // bo 3 giay dau (khoi dong)
+            std::vector<qint64> iv;
+            for (size_t k = 1; k < ra.size(); ++k) if (ra[k] - ra.front() > 3 * GST_SECOND) iv.push_back(ra[k] - ra[k - 1]);
+            if (iv.size() > 20) {
+                std::vector<qint64> sorted = iv;
+                std::sort(sorted.begin(), sorted.end());
+                const qint64 med = sorted[sorted.size() / 2];
+                int big = 0; double sum = 0, sq = 0;
+                for (qint64 x : iv) { if (x > med * 18 / 10) ++big; sum += x; sq += double(x) * x; }
+                const double mean = sum / iv.size(), sd = std::sqrt(std::max(0.0, sq / iv.size() - mean * mean));
+                std::vector<qint64> l2 = lb; std::sort(l2.begin(), l2.end());
+                int late = 0; for (qint64 x : lb) if (x > 0) ++late;
+                QMap<int, int> hist;
+                for (qint64 x : iv) hist[int((x + 5 * GST_MSECOND) / (10 * GST_MSECOND)) * 10]++;
+                QList<QPair<int, int>> hv;
+                for (auto it = hist.begin(); it != hist.end(); ++it) hv << qMakePair(it.value(), it.key());
+                std::sort(hv.begin(), hv.end(), [](auto &x, auto &y) { return x.first > y.first; });
+                QStringList hs;
+                for (int k = 0; k < std::min<int>(5, hv.size()); ++k) hs << QStringLiteral("%1ms:%2").arg(hv[k].second).arg(hv[k].first);
+                hitch = QStringLiteral(" [%1]").arg(hs.join(' '));
+                QStringList gaps;
+                for (size_t k = 1; k < ra.size(); ++k)
+                    if (ra[k] - ra[k - 1] > 300 * GST_MSECOND && ra[k] - ra.front() > 3 * GST_SECOND)
+                        gaps << QStringLiteral("%1s+%2").arg((ra[k - 1] - ra.front()) / 1e9 + (ra.front() - s_t0) / 1e9, 0, 'f', 1)
+                                                        .arg((ra[k] - ra[k - 1]) / 1000000);
+                hitch += QStringLiteral(" GAPS{%1}").arg(gaps.join(' '));
+                hitch += QStringLiteral(" med=%1ms sd=%2ms giat=%3 tre=%4/%5 p99tre=%6ms")
+                            .arg(med / 1e6, 0, 'f', 1).arg(sd / 1e6, 0, 'f', 1).arg(big).arg(late).arg(lb.size())
+                            .arg(l2[l2.size() * 99 / 100] / 1e6, 0, 'f', 0);
+            }
+        }
         lines << QStringLiteral("luong %1: fps_tb=%2 ve=%3 rot=%4 kbps=%5 dec=%6")
                      .arg(++i)
                      .arg(secs > 0 ? p->m_rendered / secs : 0.0, 0, 'f', 1)
-                     .arg(p->m_rendered).arg(p->m_dropped).arg(qRound(p->m_kbps)).arg(p->decoderName());
+                     .arg(p->m_rendered).arg(p->m_dropped).arg(qRound(p->m_kbps)).arg(p->decoderName()) + hitch;
     }
     return lines.join('\n');
 }

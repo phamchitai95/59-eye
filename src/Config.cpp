@@ -64,7 +64,11 @@ bool AppConfig::load(const QString &path, QString *error)
         }
         nvrs.push_back(n);
     }
-    liveLatencyMs = m_root.value("liveLatencyMs").toInt(200);
+    // Bo dem jitter xem truc tiep. 200 ms (mac dinh cu) khong du: khung chinh (I) cua nhieu camera den tre
+    // 300-460 ms moi ~8 giay -> hinh khung lai. Do tren DH-NVR5232: 500 ms thi gan nhu khong con khung tre.
+    // Gia tri 200 luu trong config.json la mac dinh cu (khong phai nguoi dung chon) -> nang len 500.
+    liveLatencyMs = m_root.value("liveLatencyMs").toInt(500);
+    if (liveLatencyMs == 200) liveLatencyMs = 500;
     playbackLatencyMs = m_root.value("playbackLatencyMs").toInt(500);
     videoSink = m_root.value("videoSink").toString();
     liveQueueLeaky = m_root.value("liveQueueLeaky").toBool(false);
