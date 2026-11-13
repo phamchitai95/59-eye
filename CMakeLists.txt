@@ -83,9 +83,15 @@ if(WIN32)
 endif()
 target_link_libraries(litepss PRIVATE Qt6::Widgets Qt6::Network gst_deps)
 
-# ---- ONNX Runtime (dem nguoi): chi can header; onnxruntime.dll nap luc chay, chep canh file chay ----
+# ---- ONNX Runtime (dem nguoi): lien ket thuong voi onnxruntime.dll, chep canh file chay ----
+# (Windows tim DLL o thu muc exe truoc System32 nen dung ban di kem, khong phai ban cu cua he thong)
 set(ORT_ROOT "${CMAKE_SOURCE_DIR}/../_deps/onnxruntime-win-x64-1.31.1" CACHE PATH "Thu muc ONNX Runtime (include/, lib/)")
 target_include_directories(litepss PRIVATE "${ORT_ROOT}/include")
+if(WIN32)
+    target_link_libraries(litepss PRIVATE "${ORT_ROOT}/lib/onnxruntime.lib")
+else()
+    target_link_libraries(litepss PRIVATE onnxruntime)
+endif()
 if(WIN32 AND EXISTS "${ORT_ROOT}/lib/onnxruntime.dll")
     add_custom_command(TARGET litepss POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ORT_ROOT}/lib/onnxruntime.dll" "$<TARGET_FILE_DIR:litepss>")

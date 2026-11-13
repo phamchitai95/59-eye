@@ -8,12 +8,6 @@
 
 #include "onnxruntime_c_api.h"
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
-
 static constexpr int kInW = 640, kInH = 384;
 static constexpr float kScoreThr = 0.30f;
 static constexpr int kHeadClass = 1; // 0 = than nguoi, 1 = dau, 2 = ban tay
@@ -28,36 +22,13 @@ struct HeadDetector::Ort {
 
 static const OrtApi *loadOrt(void **libOut, QString *error)
 {
-    // Nap dung onnxruntime.dll canh file chay (Windows co ban cu trong System32)
-    const QString dir = QCoreApplication::applicationDirPath();
-#ifdef _WIN32
-    const QString path = QDir(dir).filePath("onnxruntime.dll");
-    HMODULE m = LoadLibraryExW(reinterpret_cast<LPCWSTR>(QDir::toNativeSeparators(path).utf16()), nullptr,
-                               LOAD_WITH_ALTERED_SEARCH_PATH);
-    if (!m) {
-        *error = QStringLiteral("Không nạp được %1").arg(QDir::toNativeSeparators(path));
-        return nullptr;
-    }
-    auto getBase = reinterpret_cast<const OrtApiBase *(ORT_API_CALL *)()>(GetProcAddress(m, "OrtGetApiBase"));
-#else
-    void *m = dlopen(QDir(dir).filePath("libonnxruntime.so").toUtf8().constData(), RTLD_NOW);
-    if (!m) m = dlopen("libonnxruntime.so", RTLD_NOW);
-    if (!m) {
-        *error = QStringLiteral("Không nạp được libonnxruntime.so");
-        return nullptr;
-    }
-    auto getBase = reinterpret_cast<const OrtApiBase *(*)()>(dlsym(m, "OrtGetApiBase"));
-#endif
-    if (!getBase) {
-        *error = QStringLiteral("onnxruntime không hợp lệ (thiếu OrtGetApiBase)");
-        return nullptr;
-    }
-    const OrtApi *api = getBase()->GetApi(ORT_API_VERSION);
+    // onnxruntime.dll duoc lien ket luc build (nam canh file chay)
+    *libOut = nullptr;
+    const OrtApi *api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
     if (!api) {
-        *error = QStringLiteral("Phiên bản onnxruntime không khớp (%1)").arg(QString::fromUtf8(getBase()->GetVersionString()));
+        *error = QStringLiteral("Phiên bản onnxruntime không khớp (%1)").arg(QString::fromUtf8(OrtGetApiBase()->GetVersionString()));
         return nullptr;
     }
-    *libOut = reinterpret_cast<void *>(m);
     return api;
 }
 
