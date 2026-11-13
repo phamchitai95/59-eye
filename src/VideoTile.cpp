@@ -404,6 +404,7 @@ void VideoTile::setChannelDropEnabled(bool on)
     // vung video la cua so native: tu nhan tha de khong phu thuoc viec Windows chuyen len cua so cha
     for (QWidget *v : m_videos) v->setAcceptDrops(on);
     m_placeholder->setAcceptDrops(on);
+    m_headerBar->setAcceptDrops(on); // thanh tieu de noi (native) hien len khi keo ngang qua o
 }
 
 void VideoTile::dragEnterEvent(QDragEnterEvent *e)
@@ -553,7 +554,7 @@ void VideoTile::refreshHeader()
 
 bool VideoTile::eventFilter(QObject *o, QEvent *e)
 {
-    if (acceptDrops() && (o == m_videos[0] || o == m_videos[1] || o == m_placeholder)) {
+    if (acceptDrops() && (o == m_videos[0] || o == m_videos[1] || o == m_placeholder || o == m_headerBar)) {
         switch (e->type()) {
         case QEvent::DragEnter: dragEnterEvent(static_cast<QDragEnterEvent *>(e)); return true;
         case QEvent::DragMove: dragMoveEvent(static_cast<QDragMoveEvent *>(e)); return true;
