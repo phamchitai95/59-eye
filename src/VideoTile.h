@@ -17,7 +17,7 @@ QMimeData *encode(const ChannelRef &ref);
 bool decode(const QMimeData *m, ChannelRef *out);
 }
 
-// Mot o video: thanh tieu de (cham trang thai, ten kenh, thong so, nut loa, nut chinh hinh)
+// Mot o video: thanh tieu de noi, chi hien khi re chuot (cham trang thai, ten kenh, thong so, nut loa, nut chinh hinh)
 // + vung video native de GStreamer ve thang len.
 // Co 2 bo phat chong len nhau: khi doi luong cung kenh (phong to -> HD, thu nho -> SD) luong moi mo
 // o lop duoi, luong cu van hien cho toi khi luong moi ve khung dau tien roi moi doi lop -> khong den man hinh.
@@ -75,6 +75,9 @@ private:
     void checkPending();
     void cancelPending();
     void refreshHeader();
+    bool headerWanted();
+    void updateHeaderVisibility();
+    void placeHeader();
     void applyImage(GstPlayer *p);
     void showContextMenu(const QPoint &globalPos);
     bool compact() const { return width() < 300; } // o rat nho (luoi 6x6)
@@ -105,6 +108,8 @@ private:
     QTimer m_pendTimer;
     QElapsedTimer m_pendClock;
     QTimer m_headerTimer;
+    QTimer m_hoverTimer;
+    int m_hoverOut = 0;
 
     ChannelRef m_ref;
     ChannelRef m_imageRef;

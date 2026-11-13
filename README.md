@@ -80,7 +80,7 @@ Xem lại 1 luồng: CPU 0.4%, RAM 185 MB. Tìm bản ghi (HTTP giả lập): ~1
 - `fake_nvr_rtsp.exe` — RTSP H.265 tại `rtsp://127.0.0.1:8554/cam/realmonitor` và `/cam/playback`.
 - `python fake_nvr_http.py` — HTTP API giả (`mediaFileFind.cgi`, `ChannelTitle`) cổng 8080.
 - `bench.ps1 -Sink d3d12videosink -Layout 16 -Seconds 35` — chạy đo tự động, in trung bình 10 giây cuối.
-- Tham số dòng lệnh của app: `--layout 16 --autofill --playback --record --compare SmartPSS.exe --screenshot a.png --quit-after 40`.
+- Tham số dòng lệnh của app: `--layout 16 --autofill --playback --record --screenshot a.png --quit-after 40`.
 
 ## Những điều PoC cần kiểm chứng
 1. Bộ giải mã hiện trên ô có phải loại GPU (`d3d11h265dec`, `d3d12h265dec`, `vah265dec`…) không, hay rơi về `avdec_h265` (CPU).

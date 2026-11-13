@@ -10,6 +10,7 @@
 #include "Theme.h"
 #include "Users.h"
 
+#include <QApplication>
 #include <QContextMenuEvent>
 #include <QCursor>
 #include <QMenu>
@@ -70,7 +71,11 @@ VideoTile::VideoTile(int index, QWidget *parent) : QFrame(parent), m_index(index
     m_lightBtn->setIconSize(QSize(16, 16));
     m_lightBtn->setToolTip(QStringLiteral("Bật / tắt đèn trên camera"));
     hl->addWidget(m_lightBtn);
-    lay->addWidget(m_headerBar);
+    // Thanh tieu de noi tren video (khong chiem cho trong layout), chi hien khi re chuot vao o
+    // hoac khi co trang thai can bao (dang ket noi, loi...). Vung video la cua so native nen
+    // thanh tieu de cung phai native de nam tren duoc.
+    m_headerBar->setAttribute(Qt::WA_NativeWindow);
+    m_headerBar->hide();
     connect(m_lightBtn, &QToolButton::clicked, this, [this] {
         emit clicked(this);
         openLightMenu();
@@ -174,6 +179,10 @@ VideoTile::VideoTile(int index, QWidget *parent) : QFrame(parent), m_index(index
     m_headerTimer.setInterval(1000);
     connect(&m_headerTimer, &QTimer::timeout, this, &VideoTile::refreshHeader);
     m_headerTimer.start();
+    // Vung video native nuot su kien chuot (GStreamer xu ly) -> do vi tri con tro dinh ky
+    m_hoverTimer.setInterval(100);
+    connect(&m_hoverTimer, &QTimer::timeout, this, &VideoTile::updateHeaderVisibility);
+    m_hoverTimer.start();
     setSelected(false);
     refreshHeader();
 }
@@ -485,10 +494,12 @@ void VideoTile::refreshHeader()
 {
     const bool has = hasStream();
     const bool small = compact();
-    m_audioBtn->setVisible(has && !small && users().can(Users::Audio));
-    m_adjustBtn->setVisible(has && !small && users().can(Users::Adjust));
+    // thanh tieu de noi (khong chiem cho cua video) nen chi an nut khi o qua hep khong du cho
+    const bool noBtns = width() < 190;
+    m_audioBtn->setVisible(has && !noBtns && users().can(Users::Audio));
+    m_adjustBtn->setVisible(has && !noBtns && users().can(Users::Adjust));
     // chi o xem truc tiep cua dau ghi Dahua (camera le RTSP khong co thong tin camera)
-    m_lightBtn->setVisible(has && !small && m_ref.valid() && users().can(Users::Light) && m_ref.nvr < cfg().nvrs.size()
+    m_lightBtn->setVisible(has && !noBtns && m_ref.valid() && users().can(Users::Light) && m_ref.nvr < cfg().nvrs.size()
                            && cfg().nvrs[m_ref.nvr].isDahua());
     if (!has) {
         m_dot->setStyleSheet(dotStyle(QColor("#4a3639")));
@@ -562,9 +573,49 @@ bool VideoTile::eventFilter(QObject *o, QEvent *e)
     return QFrame::eventFilter(o, e);
 }
 
+bool VideoTile::headerWanted()
+{
+    if (!isVisible()) return false;
+    // trang thai can nguoi dung thay ngay: dang ket noi / loi / tam dung / thong bao ngan
+    if (hasStream() && (m_suspended || !m_status.isEmpty() || !m_flash.isEmpty())) return true;
+    if (m_dropHover) return true;
+    const QPoint p = mapFromGlobal(QCursor::pos());
+    if (rect().contains(p)) {
+        // chi khi con tro that su o tren cua so nay (khong bi cua so khac che)
+        QWidget *w = QApplication::widgetAt(QCursor::pos());
+        if (w && (w == this || isAncestorOf(w))) {
+            m_hoverOut = 0;
+            return true;
+        }
+    }
+    // giu them ~0.4 giay sau khi roi chuot ra de khong nhap nhay khi di qua lai mep o
+    return m_headerBar->isVisible() && ++m_hoverOut < 4;
+}
+
+void VideoTile::updateHeaderVisibility()
+{
+    const bool want = headerWanted();
+    if (want == m_headerBar->isVisible()) return;
+    if (want) {
+        placeHeader();
+        m_headerBar->show();
+        m_headerBar->raise();
+    } else {
+        m_headerBar->hide();
+    }
+}
+
+void VideoTile::placeHeader()
+{
+    const QMargins m = layout()->contentsMargins();
+    m_headerBar->setGeometry(m.left(), m.top(), width() - m.left() - m.right(), m_headerBar->height());
+}
+
 void VideoTile::resizeEvent(QResizeEvent *e)
 {
     QFrame::resizeEvent(e);
+    placeHeader();
+    m_headerBar->raise();
     // Uu tien ten kenh: thong so chi chiem toi da ~45% thanh tieu de (o nho trong luoi 4x4)
     m_info->setMaximumWidth(qMax(40, int(width() * 0.40) - 40));
     m_players[0].expose();

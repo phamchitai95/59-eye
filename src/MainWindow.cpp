@@ -271,8 +271,6 @@ void MainWindow::runAutomation(const QStringList &a)
         m_count->enqueue({0, ch}, from);
         m_tabs->setCurrentWidget(m_count);
     }
-    const QString cmp = argValue(a, "--compare");
-    if (!cmp.isEmpty()) m_metrics->setCompare(cmp);
     if (a.contains("--record")) QTimer::singleShot(5000, m_metrics, &MetricsBar::toggleRecord);
 
     const QString shot = argValue(a, "--screenshot");
